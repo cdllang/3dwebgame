@@ -1,11 +1,23 @@
 import * as THREE from 'three';
-import { SPACING, GRID, getHalf, gridToWorld, worldToGrid, isCellFree, type PlacedBuilding, placedBuildings } from './placement';
+import { SPACING, GRID, getHalf, gridToWorld, worldToGrid, isCellFree, getTileTypeAt, type PlacedBuilding, placedBuildings } from './placement';
 
 // ─── NPC Name Pool ───────────────────────────
 const NPC_NAMES = [
-  '小明', '小红', '阿木', '小石', '花姐', '老李',
-  '阿星', '豆豆', '小月', '大山', '春丽', '阿福',
-  '小蓝', '石头', '木匠', '铁匠', '小溪', '白云',
+  // Classic nicknames
+  '小明', '小红', '阿木', '小石', '阿星', '阿福',
+  '小月', '小蓝', '小绿', '小黄', '阿金', '阿银',
+  '豆豆', '毛毛', '球球', '乐乐', '欢欢', '妮妮',
+  '大壮', '小胖', '阿呆', '小乖',
+  // Nature-inspired
+  '花姐', '小溪', '白云', '大山', '石头', '春丽',
+  '秋实', '夏雨', '冬梅', '竹林', '荷花', '柳条',
+  '松子', '麦苗', '海风', '月光', '星尘', '露珠',
+  '枫叶', '稻香', '葵花', '野草',
+  // Warm / whimsical
+  '老李', '木匠', '铁匠', '面包师', '花匠', '渔夫',
+  '阿暖', '小太阳', '布丁', '饼干', '蜜糖', '奶茶',
+  '灯笼', '风铃', '棉袄', '斗笠', '炊烟', '牧童',
+  '燕归', '杏花', '桃酥', '年糕', '汤圆', '粽子',
 ];
 
 // ─── Types ───────────────────────────────────
@@ -18,6 +30,7 @@ export interface NPCData {
   homeGz: number;
   homeW: number;
   homeD: number;
+  homeDefId: string;
   group: THREE.Group;
   state: NPCState;
   currentGx: number;
@@ -302,6 +315,19 @@ export function buildNavGrid(): boolean[][] {
       }
     }
   }
+
+  // Water tiles: block all sub-cells (NPCs can't swim)
+  for (let gx = 0; gx < GRID; gx++) {
+    for (let gz = 0; gz < GRID; gz++) {
+      if (getTileTypeAt(gx, gz) !== 'water') continue;
+      const sx0 = gx * SUB;
+      const sz0 = gz * SUB;
+      for (let sx = sx0; sx < sx0 + SUB; sx++)
+        for (let sz = sz0; sz < sz0 + SUB; sz++)
+          grid[sx][sz] = true;
+    }
+  }
+
   cachedNavGrid = grid;
   return grid;
 }
@@ -413,14 +439,14 @@ function findPath(fromWx: number, fromWz: number, toWx: number, toWz: number): [
 }
 
 // ─── Spawn / Despawn ─────────────────────────
-export function spawnNPC(homeGx: number, homeGz: number, homeW: number, homeD: number, scene: THREE.Scene, timeOfDay: number, name?: string, skinColor?: string, clothColor?: string, rotation?: number): NPCData {
+export function spawnNPC(homeGx: number, homeGz: number, homeW: number, homeD: number, scene: THREE.Scene, timeOfDay: number, homeDefId: string, name?: string, skinColor?: string, clothColor?: string, rotation?: number): NPCData {
   const skinColors = ['#f0c8a0', '#e8b88a', '#d8a878', '#f2d0b0', '#e0c098'];
   const clothColors = ['#d4a090', '#8898b0', '#8aaa90', '#c0a0a8', '#b0a8c0', '#c8b898', '#88a8b8'];
 
   const npc: NPCData = {
     id: `npc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     name: name ?? NPC_NAMES[Math.floor(Math.random() * NPC_NAMES.length)],
-    homeGx, homeGz, homeW, homeD,
+    homeGx, homeGz, homeW, homeD, homeDefId,
     group: null!,
     state: 'sleeping',
     currentGx: homeGx,

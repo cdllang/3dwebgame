@@ -4,9 +4,9 @@ export interface SaveData {
   version: number;
   gridSize?: number; // default 12 if absent (backwards compat)
   timeOfDay: number;
-  buildings: { defId: string; gx: number; gz: number; rotation: number }[];
+  buildings: { defId: string; gx: number; gz: number; rotation: number; customName?: string }[];
   tiles?: string[][];
-  npcs?: { id: string; name: string; homeGx: number; homeGz: number; homeW: number; homeD: number; skinColor: string; clothColor: string }[];
+  npcs?: { id: string; name: string; homeGx: number; homeGz: number; homeW: number; homeD: number; homeDefId?: string; skinColor: string; clothColor: string }[];
   thumbnail?: string; // base64 PNG data URL for world preview
 }
 

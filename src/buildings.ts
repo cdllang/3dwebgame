@@ -311,7 +311,7 @@ export function createMediumWoodenHouse(opts?: HouseOptions): THREE.Group {
   const pCanvas = document.createElement('canvas'); pCanvas.width = 512; pCanvas.height = 128;
   const pctx = pCanvas.getContext('2d')!;
   pctx.fillStyle = '#5a4030';
-  pctx.font = 'bold 90px "Segoe UI", system-ui, sans-serif';
+  pctx.font = 'bold 90px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   pctx.textAlign = 'center'; pctx.textBaseline = 'middle';
   pctx.fillText('中型木屋', 256, 64);
   const pTex = new THREE.CanvasTexture(pCanvas); pTex.minFilter = THREE.LinearFilter;
@@ -321,6 +321,8 @@ export function createMediumWoodenHouse(opts?: HouseOptions): THREE.Group {
   );
   textPlane.position.set(0, plaqueY, plaqueZ + 0.06);
   textPlane.userData.noMerge = true;
+  textPlane.userData.isPlaque = true;
+  textPlane.userData.plaqueFont = 'bold 90px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   inner.add(textPlane);
 
   addWindowDetailed(inner, -(W/2 + 0.65) * U, (1.5 + 4.5) * U, 0, -Math.PI/2, true);
@@ -388,7 +390,7 @@ export function createLargeHouse(opts?: HouseOptions): THREE.Group {
   const pCanvas = document.createElement('canvas'); pCanvas.width = 512; pCanvas.height = 128;
   const pctx = pCanvas.getContext('2d')!;
   pctx.fillStyle = '#5a4030';
-  pctx.font = 'bold 90px "Segoe UI", system-ui, sans-serif';
+  pctx.font = 'bold 90px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   pctx.textAlign = 'center'; pctx.textBaseline = 'middle';
   pctx.fillText('大房子', 256, 64);
   const pTex = new THREE.CanvasTexture(pCanvas); pTex.minFilter = THREE.LinearFilter;
@@ -398,6 +400,8 @@ export function createLargeHouse(opts?: HouseOptions): THREE.Group {
   );
   textPlane.position.set(offX + 0.5, plaqueY, plaqueZ + 0.06);
   textPlane.userData.noMerge = true;
+  textPlane.userData.isPlaque = true;
+  textPlane.userData.plaqueFont = 'bold 90px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   inner.add(textPlane);
 
   return g;
@@ -588,7 +592,7 @@ export function createWorkshop(): THREE.Group {
   const wc = document.createElement('canvas'); wc.width = 256; wc.height = 64;
   const wctx = wc.getContext('2d')!;
   wctx.fillStyle = '#5a4030';
-  wctx.font = 'bold 48px "Segoe UI", system-ui, sans-serif';
+  wctx.font = 'bold 48px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   wctx.textAlign = 'center'; wctx.textBaseline = 'middle';
   wctx.fillText('作坊', 128, 32);
   const wt = new THREE.CanvasTexture(wc); wt.minFilter = THREE.LinearFilter;
@@ -596,6 +600,8 @@ export function createWorkshop(): THREE.Group {
     new THREE.MeshBasicMaterial({ map: wt, transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide }));
   wp.position.set(0, sy, sz + 0.06);
   wp.userData.noMerge = true;
+  wp.userData.isPlaque = true;
+  wp.userData.plaqueFont = 'bold 48px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   inner.add(wp);
 
   return g;
@@ -626,7 +632,7 @@ export function createBakery(): THREE.Group {
   const bc = document.createElement('canvas'); bc.width = 256; bc.height = 64;
   const bctx = bc.getContext('2d')!;
   bctx.fillStyle = '#5a4030';
-  bctx.font = 'bold 48px "Segoe UI", system-ui, sans-serif';
+  bctx.font = 'bold 48px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   bctx.textAlign = 'center'; bctx.textBaseline = 'middle';
   bctx.fillText('面包房', 128, 32);
   const bt = new THREE.CanvasTexture(bc); bt.minFilter = THREE.LinearFilter;
@@ -634,6 +640,8 @@ export function createBakery(): THREE.Group {
     new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide }));
   bp.position.set(0, sy, sz + 0.06);
   bp.userData.noMerge = true;
+  bp.userData.isPlaque = true;
+  bp.userData.plaqueFont = 'bold 48px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
   inner.add(bp);
 
   return g;

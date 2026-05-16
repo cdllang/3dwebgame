@@ -9,7 +9,7 @@ import {
   SPACING, GRID, getHalf, setGridSize, gridToWorld, worldToGrid,
   canPlaceAt, markOccupied, clearOccupied, applyGhostMaterial,
   type Rotation, type PlacedBuilding, placedBuildings, addPlaced,
-  rotate,
+  rotate, setTileTypesRef,
 } from './placement';
 import {
   saveWorld as dbSaveWorld, loadWorld as dbLoadWorld,
@@ -361,6 +361,8 @@ const GROUND_TYPES = [
   { id: 'grass_light', name: '浅色草地', color: '#dce4cf' },
   { id: 'dirt',        name: '土地',     color: '#c0b090' },
   { id: 'road',        name: '道路',     color: '#d8d4ca' },
+  { id: 'sand',        name: '沙滩',     color: '#e8dcc8' },
+  { id: 'water',       name: '水',       color: '#5898c8' },
 ] as const;
 
 // ─── Procedural Ground Textures ────────────────
@@ -495,6 +497,67 @@ function createRoadTex(): THREE.CanvasTexture {
   return makeTex(canvas);
 }
 
+function createSandTex(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const rand = seededRand(753);
+
+  ctx.fillStyle = '#faf6ec';
+  ctx.fillRect(0, 0, size, size);
+
+  // Sand grain — dense fine dots
+  for (let i = 0; i < 800; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const shade = 225 + Math.floor(rand() * 30);
+    ctx.fillStyle = `rgba(${shade},${shade - 5},${shade - 18},0.6)`;
+    ctx.fillRect(x, y, 1.2, 1.2);
+  }
+
+  // Slightly larger specks (tiny shells / pebbles)
+  for (let i = 0; i < 60; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const shade = 235 + Math.floor(rand() * 20);
+    ctx.fillStyle = `rgba(${shade},${shade - 2},${shade - 12},0.45)`;
+    ctx.beginPath(); ctx.arc(x, y, 0.5 + rand() * 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  return makeTex(canvas);
+}
+
+function createWaterTex(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const rand = seededRand(321);
+
+  ctx.fillStyle = '#88bbdd';
+  ctx.fillRect(0, 0, size, size);
+
+  // Lighter ripple streaks
+  for (let i = 0; i < 200; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const shade = 160 + Math.floor(rand() * 50);
+    ctx.fillStyle = `rgba(${shade},${shade + 15},${shade + 35},0.3)`;
+    ctx.fillRect(x, y, 2 + rand() * 3, 1 + rand() * 1.5);
+  }
+
+  // Specular highlights
+  for (let i = 0; i < 40; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    ctx.fillStyle = `rgba(255,255,255,${0.08 + rand() * 0.12})`;
+    ctx.beginPath(); ctx.arc(x, y, 0.5 + rand() * 2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  return makeTex(canvas);
+}
+
 function makeTex(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
@@ -508,6 +571,8 @@ const groundTexMap: Record<string, THREE.CanvasTexture> = {
   grass_light: createGrassTex(true),
   dirt: createDirtTex(),
   road: createRoadTex(),
+  sand: createSandTex(),
+  water: createWaterTex(),
 };
 
 function makeGroundMat(color: string, typeId: string): THREE.MeshStandardMaterial {
@@ -526,6 +591,43 @@ for (let tx = 0; tx < GRID; tx++) {
   for (let tz = 0; tz < GRID; tz++) {
     tileTypes[tx][tz] = (tx + tz) % 3 === 0 ? 'grass_dark' : 'grass_light';
   }
+}
+setTileTypesRef(tileTypes);
+
+// ─── Water Wave Overlay ─────────────────────────
+const waterWaveGroup = new THREE.Group();
+scene.add(waterWaveGroup);
+const waterTileMeshes: { mesh: THREE.Mesh; baseY: number; wx: number; wz: number }[] = [];
+const tileSize = SPACING * 0.92;
+const waterPlaneGeo = new THREE.PlaneGeometry(tileSize, tileSize);
+waterPlaneGeo.rotateX(-Math.PI / 2);
+const waterPlaneMat = new THREE.MeshPhongMaterial({
+  color: '#4499cc',
+  specular: '#88ccff',
+  shininess: 60,
+  transparent: true,
+  opacity: 0.5,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+
+function rebuildWaterWaves() {
+  waterTileMeshes.forEach(t => { t.mesh.geometry.dispose(); waterWaveGroup.remove(t.mesh); });
+  waterTileMeshes.length = 0;
+
+  for (let tx = 0; tx < GRID; tx++) {
+    for (let tz = 0; tz < GRID; tz++) {
+      if (tileTypes[tx][tz] !== 'water') continue;
+      const [wx, wz] = gridToWorld(tx, tz);
+      const geo = waterPlaneGeo.clone();
+      const mesh = new THREE.Mesh(geo, waterPlaneMat);
+      mesh.position.set(wx, 0.13, wz);
+      mesh.renderOrder = 1;
+      waterWaveGroup.add(mesh);
+      waterTileMeshes.push({ mesh, baseY: 0.13, wx, wz });
+    }
+  }
+  console.log('Water waves rebuilt:', waterTileMeshes.length, 'tiles');
 }
 
 function rebuildGroundMeshes() {
@@ -549,10 +651,12 @@ function rebuildGroundMeshes() {
   for (const gt of GROUND_TYPES) {
     const count = counts[gt.id];
     if (count === 0) continue;
-    const mat = makeGroundMat(gt.color, gt.id);
+    const mat = gt.id === 'water'
+      ? new THREE.MeshStandardMaterial({ color: gt.color, roughness: 0.3, metalness: 0.1, map: groundTexMap[gt.id], transparent: true, opacity: 0.55, depthWrite: false })
+      : makeGroundMat(gt.color, gt.id);
     const im = new THREE.InstancedMesh(sharedTileGeo, mat, count);
     im.receiveShadow = true;
-    im.castShadow = true;
+    im.castShadow = gt.id !== 'water';
     let i = 0;
     for (let tx = 0; tx < GRID; tx++) {
       for (let tz = 0; tz < GRID; tz++) {
@@ -569,6 +673,7 @@ function rebuildGroundMeshes() {
     im.instanceMatrix.needsUpdate = true;
     groundGroup.add(im);
   }
+  rebuildWaterWaves();
 }
 
 rebuildGroundMeshes();
@@ -594,6 +699,91 @@ function rebuildGroundTiles() {
   tileTypes.length = 0;
   for (let tx = 0; tx < newW; tx++) tileTypes[tx] = fresh[tx];
   rebuildGroundMeshes();
+}
+
+// ─── World Templates ──────────────────────────
+type TemplateId = 'empty' | 'seaside' | 'island';
+
+interface WorldTemplate {
+  id: TemplateId;
+  name: string;
+  description: string;
+  generate(size: number): string[][];
+}
+
+const worldTemplates: WorldTemplate[] = [
+  {
+    id: 'empty',
+    name: '空白平地',
+    description: '全部草地，自由建造',
+    generate(size) {
+      const tiles: string[][] = [];
+      for (let tx = 0; tx < size; tx++) {
+        tiles[tx] = [];
+        for (let tz = 0; tz < size; tz++) {
+          tiles[tx][tz] = (tx + tz) % 3 === 0 ? 'grass_dark' : 'grass_light';
+        }
+      }
+      return tiles;
+    },
+  },
+  {
+    id: 'seaside',
+    name: '海滨',
+    description: '一侧临海，有沙滩',
+    generate(size) {
+      const tiles: string[][] = [];
+      const shoreEdge = Math.floor(size * 0.65);
+      const sandWidth = Math.max(1, Math.floor(size * 0.15));
+      for (let tx = 0; tx < size; tx++) {
+        tiles[tx] = [];
+        for (let tz = 0; tz < size; tz++) {
+          if (tx >= shoreEdge && tz >= shoreEdge) {
+            tiles[tx][tz] = 'water';
+          } else if (tx >= shoreEdge - sandWidth || tz >= shoreEdge - sandWidth) {
+            tiles[tx][tz] = 'sand';
+          } else {
+            tiles[tx][tz] = (tx + tz) % 3 === 0 ? 'grass_dark' : 'grass_light';
+          }
+        }
+      }
+      return tiles;
+    },
+  },
+  {
+    id: 'island',
+    name: '小岛',
+    description: '四面环水，沙滩环绕',
+    generate(size) {
+      const tiles: string[][] = [];
+      const waterMargin = Math.max(1, Math.floor(size * 0.2));
+      const sandMargin = waterMargin + Math.max(1, Math.floor(size * 0.1));
+      for (let tx = 0; tx < size; tx++) {
+        tiles[tx] = [];
+        for (let tz = 0; tz < size; tz++) {
+          const distToEdge = Math.min(tx, tz, size - 1 - tx, size - 1 - tz);
+          if (distToEdge < waterMargin) {
+            tiles[tx][tz] = 'water';
+          } else if (distToEdge < sandMargin) {
+            tiles[tx][tz] = 'sand';
+          } else {
+            tiles[tx][tz] = (tx + tz) % 3 === 0 ? 'grass_dark' : 'grass_light';
+          }
+        }
+      }
+      return tiles;
+    },
+  },
+];
+
+function applyTemplate(templateId: TemplateId) {
+  const tpl = worldTemplates.find(t => t.id === templateId) ?? worldTemplates[0];
+  const newTiles = tpl.generate(GRID);
+  for (let tx = 0; tx < GRID; tx++) {
+    tileTypes[tx] = newTiles[tx];
+  }
+  rebuildGroundMeshes();
+  invalidateNavCache();
 }
 
 // ─── Post-Processing (Bokeh DOF) ─────────────
@@ -691,7 +881,7 @@ interface HistoryAction {
   oldType?: string;
   newType?: string;
   // For restoring deleted buildings + their NPCs
-  npcSaveData?: { name: string; skinColor: string; clothColor: string; homeW: number; homeD: number } | null;
+  npcSaveData?: { name: string; skinColor: string; clothColor: string; homeW: number; homeD: number; defId?: string } | null;
 }
 
 const undoStack: HistoryAction[] = [];
@@ -751,7 +941,7 @@ function performUndo() {
     });
     if (def.category === 'house' && action.npcSaveData) {
       const nd = action.npcSaveData;
-      spawnNPC(action.gx, action.gz, nd.homeW, nd.homeD, scene, timeOfDay,
+      spawnNPC(action.gx, action.gz, nd.homeW, nd.homeD, scene, timeOfDay, action.defId,
         nd.name, nd.skinColor, nd.clothColor, rot as Rotation,
       );
     }
@@ -807,7 +997,7 @@ function performRedo() {
     });
     if (def.category === 'house' && action.npcSaveData) {
       const nd = action.npcSaveData;
-      spawnNPC(action.gx, action.gz, nd.homeW, nd.homeD, scene, timeOfDay,
+      spawnNPC(action.gx, action.gz, nd.homeW, nd.homeD, scene, timeOfDay, action.defId,
         nd.name, nd.skinColor, nd.clothColor, rot as Rotation,
       );
     }
@@ -899,8 +1089,10 @@ function placeBuilding(gx: number, gz: number) {
   let npcSaveData = null;
   if (selectedDef.category === 'house') {
     const { gridW, gridD } = rotate(selectedDef, selectedRotation);
-    const npc = spawnNPC(gx, gz, gridW, gridD, scene, timeOfDay, undefined, undefined, undefined, selectedRotation);
-    npcSaveData = { name: npc.name, skinColor: npc.skinColor, clothColor: npc.clothColor, homeW: gridW, homeD: gridD };
+    const npc = spawnNPC(gx, gz, gridW, gridD, scene, timeOfDay, selectedDef.id, undefined, undefined, undefined, selectedRotation);
+    npcSaveData = { name: npc.name, skinColor: npc.skinColor, clothColor: npc.clothColor, homeW: gridW, homeD: gridD, defId: selectedDef.id };
+    // Sync plaque text with NPC name for buildings that have plaques
+    updatePlaqueText(inst, npc.name);
   }
 
   recordAction({ type: 'place', gx, gz, defId: selectedDef.id, rotation: selectedRotation, npcSaveData });
@@ -1062,6 +1254,7 @@ function buildSaveData(): SaveData {
       gx: b.gx,
       gz: b.gz,
       rotation: b.rotation,
+      ...(b.customName ? { customName: b.customName } : {}),
     })),
     tiles: tileTypes,
     npcs: npcs.map(n => ({
@@ -1071,6 +1264,7 @@ function buildSaveData(): SaveData {
       homeGz: n.homeGz,
       homeW: n.homeW,
       homeD: n.homeD,
+      homeDefId: n.homeDefId,
       skinColor: n.skinColor,
       clothColor: n.clothColor,
     })),
@@ -1114,7 +1308,7 @@ function restoreWorld(data: SaveData) {
   rebuildGroundMeshes();
   // Restore buildings
   if (data.buildings) {
-    data.buildings.forEach(({ defId, gx, gz, rotation }) => {
+    data.buildings.forEach(({ defId, gx, gz, rotation, customName }) => {
       const def = BUILDINGS.find(b => b.id === defId);
       if (!def) return;
       const inst = def.factory(def.defaultOpts);
@@ -1125,7 +1319,7 @@ function restoreWorld(data: SaveData) {
       inst.position.set(cx, 0, cz);
       inst.rotation.y = THREE.MathUtils.degToRad(rotation);
       scene.add(inst);
-      addPlaced({ id: Date.now() + Math.random(), def, gx, gz, rotation: rotation as Rotation, group: inst });
+      addPlaced({ id: Date.now() + Math.random(), def, gx, gz, rotation: rotation as Rotation, group: inst, customName });
       if (def.id === 'fence') connectFences(gx, gz, inst);
       if (def.id === 'street_lamp') {
         inst.traverse(c => {
@@ -1140,9 +1334,20 @@ function restoreWorld(data: SaveData) {
   // Restore NPCs
   if (data.npcs) {
     data.npcs.forEach(n => {
-      spawnNPC(n.homeGx, n.homeGz, n.homeW ?? 1, n.homeD ?? 1, scene, data.timeOfDay, n.name, n.skinColor, n.clothColor);
+      spawnNPC(n.homeGx, n.homeGz, n.homeW ?? 1, n.homeD ?? 1, scene, data.timeOfDay, n.homeDefId ?? 'small_wooden_house', n.name, n.skinColor, n.clothColor);
+    });
+    // Sync plaque text: customName > NPC name
+    npcs.forEach(n => {
+      const pb = placedBuildings.find(b =>
+        b.gx === n.homeGx && b.gz === n.homeGz && b.def.id === n.homeDefId
+      );
+      if (pb) updatePlaqueText(pb.group, pb.customName ?? n.name);
     });
   }
+  // Sync plaques for buildings with customName (workshop/bakery have no NPC)
+  placedBuildings.forEach(pb => {
+    if (pb.customName) updatePlaqueText(pb.group, pb.customName);
+  });
 }
 
 function switchToWorld(id: string, name: string, data: SaveData) {
@@ -1190,6 +1395,30 @@ window.addEventListener('beforeunload', () => {
 });
 setInterval(saveWorld, 60_000);
 
+// ─── Plaque Text Update ───────────────────────
+function updatePlaqueText(group: THREE.Group, text: string) {
+  group.traverse(child => {
+    if (!(child instanceof THREE.Mesh) || !child.userData.isPlaque) return;
+    const mat = child.material as THREE.MeshBasicMaterial;
+    if (!mat.map) return;
+    const src = mat.map.image as HTMLCanvasElement;
+    const font = (child.userData.plaqueFont as string) || 'bold 48px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
+    const canvas = document.createElement('canvas');
+    canvas.width = src.width;
+    canvas.height = src.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#5a4030';
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    mat.map.dispose();
+    mat.map = new THREE.CanvasTexture(canvas);
+    mat.map.minFilter = THREE.LinearFilter;
+    mat.needsUpdate = true;
+  });
+}
+
 // ─── Right-Click Deletion ─────────────────────
 function removePlacedBuilding(pb: PlacedBuilding, skipSave = false) {
   // Capture NPC data for undo before removing
@@ -1197,7 +1426,7 @@ function removePlacedBuilding(pb: PlacedBuilding, skipSave = false) {
   if (!undoRedoing && pb.def.category === 'house') {
     const bound = npcs.find(n => n.homeGx === pb.gx && n.homeGz === pb.gz);
     if (bound) {
-      npcSaveData = { name: bound.name, skinColor: bound.skinColor, clothColor: bound.clothColor, homeW: bound.homeW, homeD: bound.homeD };
+      npcSaveData = { name: bound.name, skinColor: bound.skinColor, clothColor: bound.clothColor, homeW: bound.homeW, homeD: bound.homeD, defId: bound.homeDefId };
     }
   }
   if (!undoRedoing) {
@@ -1210,7 +1439,11 @@ function removePlacedBuilding(pb: PlacedBuilding, skipSave = false) {
   pb.group.traverse(c => {
     if (c instanceof THREE.Mesh) {
       c.geometry.dispose();
-      if (c.material !== railMat) (c.material as THREE.Material).dispose();
+      if (c.material !== railMat) {
+        const mat = c.material as THREE.Material;
+        if ('map' in mat && mat.map) mat.map.dispose();
+        mat.dispose();
+      }
     }
     if (c instanceof THREE.PointLight && c.userData.isStreetLight) {
       const idx = streetLights.indexOf(c);
@@ -1258,6 +1491,10 @@ function showDeleteConfirm(pb: PlacedBuilding, cx: number, cy: number) {
       })
     : null;
 
+  // Check if this building has a plaque (for building rename option)
+  let hasPlaque = false;
+  pb.group.traverse(c => { if (c instanceof THREE.Mesh && c.userData.isPlaque) hasPlaque = true; });
+
   const dlg = document.createElement('div');
   dlg.className = 'delete-confirm';
   dlg.style.cssText = `
@@ -1272,6 +1509,8 @@ function showDeleteConfirm(pb: PlacedBuilding, cx: number, cy: number) {
   `;
 
   const renderMain = () => {
+    const npcLabel = boundNpc ? `改居民名` : '';
+    const buildingLabel = hasPlaque ? '改建筑名' : '';
     dlg.innerHTML = `
       <span>${boundNpc ? `<b>${escapeHtml(boundNpc.name)}</b> · ` : ''}${escapeHtml(pb.def.name)}</span>
       <div style="display:flex;gap:6px;justify-content:flex-end;">
@@ -1282,7 +1521,11 @@ function showDeleteConfirm(pb: PlacedBuilding, cx: number, cy: number) {
         ${boundNpc ? `<button class="rename-btn" style="
           padding:3px 10px; border:1px solid #c8d0e0; border-radius:4px;
           background:#fff; color:#6688aa; cursor:pointer; font-size:11px;
-        ">改名</button>` : ''}
+        ">${npcLabel}</button>` : ''}
+        ${hasPlaque ? `<button class="rename-building-btn" style="
+          padding:3px 10px; border:1px solid #c8d0c0; border-radius:4px;
+          background:#fff; color:#8a8870; cursor:pointer; font-size:11px;
+        ">${buildingLabel}</button>` : ''}
         <button class="del-ok" style="
           padding:3px 10px; border:none; border-radius:4px;
           background:#e07070; color:#fff; cursor:pointer; font-size:11px;
@@ -1318,6 +1561,13 @@ function showDeleteConfirm(pb: PlacedBuilding, cx: number, cy: number) {
       dlg.querySelector('.rename-btn')!.addEventListener('click', () => {
         ignoreClose = true;
         renderRename();
+      });
+    }
+
+    if (hasPlaque) {
+      dlg.querySelector('.rename-building-btn')!.addEventListener('click', () => {
+        ignoreClose = true;
+        renderRenameBuilding();
       });
     }
   };
@@ -1368,8 +1618,80 @@ function showDeleteConfirm(pb: PlacedBuilding, cx: number, cy: number) {
         (boundNpc!.label.material as THREE.SpriteMaterial).dispose();
         boundNpc!.label = createLabel(newName);
         boundNpc!.group.add(boundNpc!.label);
+        // Update plaque only if building has no custom name
+        const homePb = placedBuildings.find(b =>
+          b.gx === boundNpc!.homeGx && b.gz === boundNpc!.homeGz &&
+          b.def.id === boundNpc!.homeDefId
+        );
+        if (homePb && !homePb.customName) updatePlaqueText(homePb.group, newName);
         saveWorld();
       }
+      renderMain();
+    }
+  };
+
+  const renderRenameBuilding = () => {
+    dlg.innerHTML = `
+      <span style="font-size:11px;color:#888;">修改 <b>${escapeHtml(pb.def.name)}</b> 的铭牌文字</span>
+      <input class="rename-building-input" value="${escapeHtml(pb.customName ?? boundNpc?.name ?? pb.def.name)}" style="
+        padding:4px 8px; border:1px solid #d0d4d8; border-radius:4px;
+        font-size:12px; font-family:${FONT}; outline:none; width:160px;
+      " maxlength="12">
+      <div style="display:flex;gap:6px;justify-content:flex-end;">
+        <button class="rename-b-cancel" style="
+          padding:3px 10px; border:1px solid #ddd; border-radius:4px;
+          background:#fff; color:#888; cursor:pointer; font-size:11px;
+        ">取消</button>
+        ${pb.customName ? `<button class="rename-b-clear" style="
+          padding:3px 10px; border:1px solid #e0d0c0; border-radius:4px;
+          background:#fff; color:#c0a080; cursor:pointer; font-size:11px;
+        ">清除</button>` : ''}
+        <button class="rename-b-ok" style="
+          padding:3px 10px; border:none; border-radius:4px;
+          background:#b0b880; color:#fff; cursor:pointer; font-size:11px;
+        ">确认</button>
+      </div>
+    `;
+
+    const input = dlg.querySelector('.rename-building-input') as HTMLInputElement;
+    input.focus();
+    input.select();
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') confirmRenameBuilding();
+      if (e.key === 'Escape') renderMain();
+    });
+
+    dlg.querySelector('.rename-b-cancel')!.addEventListener('click', () => {
+      ignoreClose = true;
+      renderMain();
+    });
+    dlg.querySelector('.rename-b-ok')!.addEventListener('click', () => {
+      ignoreClose = true;
+      confirmRenameBuilding();
+    });
+
+    if (pb.customName) {
+      dlg.querySelector('.rename-b-clear')!.addEventListener('click', () => {
+        ignoreClose = true;
+        pb.customName = undefined;
+        // Revert to NPC name or building default
+        updatePlaqueText(pb.group, boundNpc?.name ?? pb.def.name);
+        saveWorld();
+        renderMain();
+      });
+    }
+
+    function confirmRenameBuilding() {
+      const newName = input.value.trim();
+      if (!newName) {
+        // Empty → clear custom name
+        pb.customName = undefined;
+        updatePlaqueText(pb.group, boundNpc?.name ?? pb.def.name);
+      } else {
+        pb.customName = newName;
+        updatePlaqueText(pb.group, newName);
+      }
+      saveWorld();
       renderMain();
     }
   };
@@ -1982,6 +2304,12 @@ async function renderWorldModal() {
           <option value="16">16×16</option>
           <option value="24">24×24</option>
         </select>
+        <select id="wm-template" style="
+          padding:8px 12px; border:1px solid #e0dcd4; border-radius:6px;
+          font-size:14px; font-family:${FONT}; background:#fff; color:#666;
+        ">
+          ${worldTemplates.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+        </select>
         <button id="wm-create" style="
           padding:8px 20px; border:none; border-radius:6px;
           background:#b0c8a0; color:#fff; cursor:pointer; font-size:14px;
@@ -2078,12 +2406,16 @@ async function renderWorldModal() {
     const name = input.value.trim() || '未命名世界';
     const sizeSelect = worldModal.querySelector('#wm-grid-size') as HTMLSelectElement;
     const gridSize = parseInt(sizeSelect.value) || 12;
+    const tplSelect = worldModal.querySelector('#wm-template') as HTMLSelectElement;
+    const templateId = tplSelect.value as TemplateId;
     await saveWorld();
     const meta = await createWorld(name, gridSize);
     const record = await dbLoadWorld(meta.id);
     if (record) {
       switchToWorld(record.id, record.name, record.data);
+      applyTemplate(templateId);
       renderWorldModal();
+      saveWorld();
     }
   });
 
@@ -2385,6 +2717,14 @@ function animate(): void {
   updateDayNight(dt);
   updateFireflies(dt);
   updateNPCs(dt, timeOfDay, timeSpeed, scene);
+  // Water wave animation
+  let t = performance.now() * 0.001;
+  waterTileMeshes.forEach(wt => {
+    const wave = Math.sin(wt.wx * 3.0 + t * 2.0) * Math.cos(wt.wz * 2.5 + t * 1.6) * 0.12
+               + Math.sin(wt.wx * 5.0 - t * 1.4) * Math.cos(wt.wz * 4.5 + t * 2.2) * 0.07
+               + Math.sin((wt.wx + wt.wz) * 4.0 + t * 3.0) * 0.05;
+    wt.mesh.position.y = wt.baseY + wave;
+  });
   updateDebugPanel();
 
   // FPS counter

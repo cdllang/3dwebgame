@@ -49,6 +49,16 @@ export function setGridSize(size: number): void {
   occupied.clear();
 }
 
+// ─── Tile Type Reference (set by main.ts) ─────
+let _tileTypes: string[][] | null = null;
+export function setTileTypesRef(ref: string[][]): void { _tileTypes = ref; }
+export function getTileTypeAt(gx: number, gz: number): string | null {
+  if (!_tileTypes || gx < 0 || gx >= _tileTypes.length) return null;
+  const row = _tileTypes[gx];
+  if (!row || gz < 0 || gz >= row.length) return null;
+  return row[gz];
+}
+
 export function gridToWorld(gx: number, gz: number): [number, number] {
   const h = getHalf();
   return [gx * SPACING - h, gz * SPACING - h];
@@ -80,6 +90,7 @@ export interface PlacedBuilding {
   gz: number;
   rotation: Rotation;
   group: THREE.Group;
+  customName?: string;
 }
 
 let nextId = 1;
