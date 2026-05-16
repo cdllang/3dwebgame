@@ -228,8 +228,8 @@ function updateDayNight(dt: number) {
     });
   });
 
-  // House windows: glow 17:00-24:00, off after midnight
-  const houseLightOn = timeOfDay >= 0.708 ? 1.5 : 0.15;
+  // House windows: glow 18:00-22:00
+  const houseLightOn = timeOfDay >= 0.75 && timeOfDay < 0.917 ? 1.5 : 0.15;
   houseWindows.forEach(w => {
     (w.material as THREE.MeshStandardMaterial).emissiveIntensity = houseLightOn;
   });
