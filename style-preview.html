@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>体素房屋风格预览</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --text: #e0e0e0;
+    --accent: #f0c060;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    user-select: none;
+  }
+  #canvas { display: block; }
+
+  /* Labels */
+  .label {
+    position: absolute;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    transition: opacity 0.3s;
+  }
+  .label .title {
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    padding: 4px 14px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+  }
+  .label .subtitle {
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  /* Info bar */
+  .info-bar {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 8px 20px;
+    color: #ccc;
+    font-size: 13px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .info-bar span { color: #fff; font-weight: 600; }
+
+  /* Legend */
+  .legend {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 32px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 10px 24px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ccc;
+    font-size: 12px;
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="canvas"></div>
+
+<div class="info-bar">
+  体素房屋风格预览
+  <span>|</span>
+  拖拽旋转 &middot; 滚轮缩放 &middot; 右键平移
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { HalftonePass } from 'three/addons/postprocessing/HalftonePass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
+import { ColorCorrectionShader } from 'three/addons/shaders/ColorCorrectionShader.js';
+import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
+import { FilmShader } from 'three/addons/shaders/FilmShader.js';
+
+// ─── Scene Setup ───────────────────────────
+const container = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+// Sky gradient background
+const bgColor = new THREE.Color('#87CEEB');
+scene.background = bgColor;
+scene.fog = new THREE.Fog('#c8dce8', 40, 80);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.5, 120);
+camera.position.set(8, 16, 28);
+camera.lookAt(0, 2, 0);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 2.5, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 10;
+controls.maxDistance = 50;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.update();
+
+// ─── Lighting ──────────────────────────────
+const ambient = new THREE.AmbientLight('#bcd4f0', 0.8);
+scene.add(ambient);
+
+const hemi = new THREE.HemisphereLight('#ffeeb1', '#8d9c6a', 0.6);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight('#fff5e8', 4.5);
+sun.position.set(20, 30, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 100;
+sun.shadow.camera.left = -30;
+sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 20;
+sun.shadow.camera.bottom = -10;
+sun.shadow.bias = -0.0002;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+// ─── Materials Cache ───────────────────────
+const matCache = {};
+function getMat(hex) {
+  if (!matCache[hex]) {
+    matCache[hex] = new THREE.MeshStandardMaterial({
+      color: hex,
+      roughness: 0.7,
+      metalness: 0.05
+    });
+  }
+  return matCache[hex];
+}
+
+function getMatRough(hex, r) {
+  const key = hex + '_' + r;
+  if (!matCache[key]) {
+    matCache[key] = new THREE.MeshStandardMaterial({
+      color: hex,
+      roughness: r,
+      metalness: 0.05
+    });
+  }
+  return matCache[key];
+}
+
+function getMatSmooth(hex) {
+  if (!matCache[hex + '_smooth']) {
+    matCache[hex + '_smooth'] = new THREE.MeshStandardMaterial({
+      color: hex,
+      roughness: 0.35,
+      metalness: 0.1
+    });
+  }
+  return matCache[hex + '_smooth'];
+}
+
+// Glass material
+const glassMat = new THREE.MeshStandardMaterial({
+  color: '#c8e0f0',
+  roughness: 0.2,
+  metalness: 0.3,
+  transparent: true,
+  opacity: 0.55
+});
+
+// ─── Voxel Geometry (shared) ───────────────
+const voxelGeo = new THREE.BoxGeometry(1, 1, 1);
+
+// ─── Helper Functions ──────────────────────
+function voxel(parent, x, y, z, material) {
+  const mesh = new THREE.Mesh(voxelGeo, material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+function voxelGroup(parent, positions, material) {
+  positions.forEach(([x, y, z]) => voxel(parent, x, y, z, material));
+}
+
+function wallX(parent, x, y1, y2, z1, z2, material) {
+  for (let y = y1; y <= y2; y++)
+    for (let z = z1; z <= z2; z++)
+      voxel(parent, x, y, z, material);
+}
+
+function wallZ(parent, z, y1, y2, x1, x2, material) {
+  for (let y = y1; y <= y2; y++)
+    for (let x = x1; x <= x2; x++)
+      voxel(parent, x, y, z, material);
+}
+
+function fillY(parent, y, x1, x2, z1, z2, material) {
+  for (let x = x1; x <= x2; x++)
+    for (let z = z1; z <= z2; z++)
+      voxel(parent, x, y, z, material);
+}
+
+function fillBox(parent, x1, x2, y1, y2, z1, z2, material) {
+  for (let x = x1; x <= x2; x++)
+    for (let y = y1; y <= y2; y++)
+      for (let z = z1; z <= z2; z++)
+        voxel(parent, x, y, z, material);
+}
+
+function gableRoof(parent, cx, yBase, hw, hd, peakY, mat) {
+  // Ridge runs along Z axis (constant Z extent)
+  // X extent SHRINKS as Y increases = triangular gable
+  const steps = peakY - yBase + 1;
+  for (let step = 0; step < steps; step++) {
+    const ry = yBase + step;
+    const rxHalf = Math.max(0, hw - step);
+    for (let x = cx - rxHalf; x <= cx + rxHalf; x++) {
+      for (let z = -hd; z <= hd; z++) {
+        voxel(parent, x, ry, z, mat);
+      }
+    }
+  }
+}
+
+// ─── World Container ───────────────────────
+const world = new THREE.Group();
+scene.add(world);
+
+// ─── Ground ────────────────────────────────
+const groundSize = 48;
+const groundDepth = 22;
+const groundGeo = new THREE.PlaneGeometry(groundSize, groundDepth);
+const groundMat = new THREE.MeshStandardMaterial({ color: '#7ec850', roughness: 0.9 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.05;
+ground.receiveShadow = true;
+world.add(ground);
+
+// Path material
+const pathMat = new THREE.MeshStandardMaterial({ color: '#d4c8a0', roughness: 0.85 });
+
+// ─── House Definitions ─────────────────────
+const styles = [
+  {
+    id: 'pastel',
+    name: 'Pastel Cottage',
+    nameCN: '粉彩小屋',
+    desc: '柔和暖色 / 山形屋顶 / 温馨',
+    cx: -14,
+    build(house) {
+      const W = '#f4dcd0', WA = '#e8c8b8', TR = '#faf5f0';
+      const RF = '#c4553d', RD = '#a3442e';
+      const DR = '#9b6b3d', WD = '#c8e0f0';
+      const FD = '#c0a890', CH = '#8a8a8a';
+
+      // Foundation
+      fillY(house, 0, -3, 3, -2, 2, getMat(FD));
+      // Walls layer 1-3
+      for (let y = 1; y <= 3; y++) {
+        // Front wall (z=-2) with door gap
+        if (y <= 2) {
+          voxel(house, -3, y, -2, getMat(W));
+          voxel(house, -2, y, -2, getMat(W));
+          // door gap at x=0 (y=1-2)
+          voxel(house, 1, y, -2, getMat(W));
+          voxel(house, 2, y, -2, getMat(W));
+          voxel(house, 3, y, -2, getMat(W));
+        } else {
+          voxel(house, -3, y, -2, getMat(W));
+          voxel(house, -2, y, -2, getMat(W));
+          voxel(house, 0, y, -2, getMat(W));
+          voxel(house, 1, y, -2, getMat(W));
+          voxel(house, 2, y, -2, getMat(W));
+          voxel(house, 3, y, -2, getMat(W));
+        }
+        // Back wall
+        voxel(house, -3, y, 2, getMat(W));
+        voxel(house, -2, y, 2, getMat(W));
+        voxel(house, -1, y, 2, getMat(W));
+        voxel(house, 0, y, 2, getMat(W));
+        voxel(house, 1, y, 2, getMat(W));
+        voxel(house, 2, y, 2, getMat(W));
+        voxel(house, 3, y, 2, getMat(W));
+        // Left wall
+        voxel(house, -3, y, -1, getMat(W));
+        voxel(house, -3, y, 0, getMat(W));
+        voxel(house, -3, y, 1, getMat(W));
+        // Right wall
+        voxel(house, 3, y, -1, getMat(W));
+        voxel(house, 3, y, 0, getMat(W));
+        voxel(house, 3, y, 1, getMat(W));
+      }
+      // Windows on side walls
+      voxel(house, -3, 2, 0, glassMat); // left window
+      voxel(house, 3, 2, 0, glassMat);  // right window
+      // Door
+      voxel(house, 0, 1, -2, getMatSmooth(DR));
+      voxel(house, 0, 2, -2, getMatSmooth(DR));
+      // Door knob
+      voxel(house, 1, 2, -2, getMat('#d4a040'));
+      // Window above door
+      voxel(house, 0, 3, -2, glassMat);
+      // Trim accents
+      voxel(house, -1, 3, -2, getMat(TR));
+      voxel(house, 1, 3, -2, getMat(TR));
+      voxel(house, -3, 3, 2, getMat(TR));
+      voxel(house, 3, 3, 2, getMat(TR));
+      // Roof (peak at y=8, sharp ridge)
+      gableRoof(house, 0, 4, 4, 3, 8, getMatSmooth(RF));
+      // Roof ridge accent
+      for (let z = -2; z <= 2; z++) voxel(house, 0, 8, z, getMat(RD));
+      // Chimney (raised to clear new roof)
+      voxel(house, 2, 4, -1, getMat(CH));
+      voxel(house, 2, 5, -1, getMat(CH));
+      voxel(house, 2, 6, -1, getMat(CH));
+      voxel(house, 2, 4, 0, getMat(CH));
+      voxel(house, 2, 5, 0, getMat(CH));
+      // Flower boxes under windows
+      voxel(house, -3, 1, 0, getMat('#8b5a3c'));
+      voxel(house, 3, 1, 0, getMat('#8b5a3c'));
+      // Flowers
+      voxel(house, -3, 2, 0, getMat('#e87090'));
+      voxel(house, 3, 2, 0, getMat('#f0c040'));
+    }
+  },
+  {
+    id: 'medieval',
+    name: 'Medieval Stone',
+    nameCN: '中世纪石屋',
+    desc: '灰石墙体 / 深木屋顶 / 苔藓地基',
+    cx: -5,
+    build(house) {
+      const S1 = '#8a8a8a', S2 = '#7a7a7a', S3 = '#6e6e6e';
+      const MS = '#5a7a4a', RF = '#4a3020', RFA = '#3a2518';
+      const DR = '#3a2010', IR = '#4a4a4a';
+
+      // Mossy foundation
+      for (let x = -3; x <= 4; x++)
+        for (let z = -2; z <= 3; z++)
+          voxel(house, x, 0, z, (x + z) % 3 === 0 ? getMat(MS) : getMat(S3));
+
+      // Walls layer 1-3, mixed stone
+      for (let y = 1; y <= 3; y++) {
+        for (let z = -2; z <= 3; z++) {
+          const mixL = (y + z) % 3 === 0 ? S1 : ((y + z) % 3 === 1 ? S2 : S3);
+          voxel(house, -3, y, z, getMat(mixL));
+          if (y === 1 && z === 0) continue; // door
+          voxel(house, 4, y, z, getMat(mixL));
+        }
+        for (let x = -2; x <= 3; x++) {
+          const mixF = (x + y) % 3 === 0 ? S1 : ((x + y) % 3 === 1 ? S2 : S3);
+          if (y <= 2 && x === 0) continue; // door
+          voxel(house, x, y, -2, getMat(mixF));
+          voxel(house, x, y, 3, getMat(mixF));
+        }
+      }
+      // Door
+      voxel(house, 0, 1, -2, getMatSmooth(DR));
+      voxel(house, 0, 2, -2, getMatSmooth(DR));
+      // Iron hinges
+      voxel(house, -1, 1, -2, getMat(IR));
+      voxel(house, 1, 1, -2, getMat(IR));
+      // Small windows
+      voxel(house, -2, 2, -2, getMat('#b8a878'));
+      voxel(house, 3, 2, -2, getMat('#b8a878'));
+      voxel(house, -3, 2, 1, getMat('#b8a878'));
+      voxel(house, 4, 2, 1, getMat('#b8a878'));
+      // Window bars
+      voxel(house, -2, 1, -2, getMat(IR));
+      voxel(house, 3, 1, -2, getMat(IR));
+
+      // Tower on right side
+      for (let y = 1; y <= 5; y++) {
+        voxel(house, 4, y, -1, getMat(S2));
+        voxel(house, 4, y, 0, getMat(S2));
+        voxel(house, 4, y, 1, getMat(S1));
+        voxel(house, 4, y, 2, getMat(S2));
+        voxel(house, 3, y, 3, getMat(S1));
+        voxel(house, 4, y, 3, getMat(S2));
+        voxel(house, 5, y, 3, getMat(S3));
+      }
+      // Tower top crenellations
+      for (let dx = -1; dx <= 1; dx += 2) {
+        voxel(house, 4 + dx, 6, 3, getMat(S2));
+        voxel(house, 4, 6, 3 + dx, getMat(S2));
+      }
+
+      // Roof - steep gable (wider house: hw=5, peak at y=9)
+      gableRoof(house, 0, 4, 5, 4, 9, getMatSmooth(RF));
+      // Roof ridge
+      for (let z = -3; z <= 3; z++) voxel(house, 0, 9, z, getMat(RFA));
+
+      // Ground moss accents
+      voxel(house, -3, 0, -3, getMat(MS));
+      voxel(house, 3, 0, -3, getMat(MS));
+      voxel(house, -3, 0, 4, getMat(MS));
+    }
+  },
+  {
+    id: 'japanese',
+    name: 'Japanese Zen',
+    nameCN: '日式禅院',
+    desc: '深色木构 / 白壁 / 弯曲屋脊 / 枯山水',
+    cx: 5,
+    build(house) {
+      const WD = '#4a3020', WL = '#6b4a30';
+      const WL_W = '#f5f0e8', RF = '#2a3a5c', RFA = '#1e2a40';
+      const PP = '#faf5e8', SND = '#e8dcc8', STN = '#7a7a7a';
+
+      // Elevated platform
+      fillY(house, 0, -3, 3, -2, 3, getMat(WD));
+      fillY(house, 1, -2, 2, -1, 2, getMat(WL));
+
+      // Walls - white with dark wood frame
+      for (let y = 2; y <= 3; y++) {
+        // Corner posts
+        voxel(house, -2, y, -1, getMat(WD));
+        voxel(house, 2, y, -1, getMat(WD));
+        voxel(house, -2, y, 2, getMat(WD));
+        voxel(house, 2, y, 2, getMat(WD));
+        // Wall panels (white)
+        for (let x = -1; x <= 1; x++) {
+          if (x === 0 && y === 2) continue; // door
+          voxel(house, x, y, -1, getMat(WL_W));
+          voxel(house, x, y, 2, getMat(WL_W));
+        }
+        for (let z = 0; z <= 1; z++) {
+          voxel(house, -2, y, z, getMat(WL_W));
+          voxel(house, 2, y, z, getMat(WL_W));
+        }
+        // Horizontal beams at top
+        voxel(house, -1, 3, -1, getMat(WL));
+        voxel(house, 0, 3, -1, getMat(WL));
+        voxel(house, 1, 3, -1, getMat(WL));
+        voxel(house, -1, 3, 2, getMat(WL));
+        voxel(house, 0, 3, 2, getMat(WL));
+        voxel(house, 1, 3, 2, getMat(WL));
+      }
+      // Paper window
+      voxel(house, -2, 3, 0, getMat(PP));
+      voxel(house, 2, 3, 0, getMat(PP));
+      // Door (sliding style)
+      voxel(house, 0, 2, -1, getMatSmooth(WL));
+      voxel(house, 0, 3, -1, getMat(PP));
+
+      // Curved roof - stepped approximation
+      // Main roof body
+      for (let y = 4; y <= 5; y++) {
+        const ext = y === 4 ? 1 : 2;
+        for (let x = -3 - ext; x <= 3 + ext; x++) {
+          for (let z = -2 - ext; z <= 3 + ext; z++) {
+            // Skip corners for curved feel
+            const cornerDist = Math.abs(x) + Math.abs(z - 0.5);
+            if (cornerDist > (y === 4 ? 6 : 7)) continue;
+            voxel(house, x, y, z, getMatSmooth(y === 5 ? RF : RFA));
+          }
+        }
+      }
+      // Roof ridge beam
+      for (let x = -3; x <= 3; x++) voxel(house, x, 6, 0, getMat(WD));
+      for (let x = -3; x <= 3; x++) voxel(house, x, 6, 1, getMat(WD));
+      // Eaves extending down at edges
+      for (let x = -4; x <= 4; x += 8) {
+        voxel(house, x, 3, -2, getMat(WD));
+        voxel(house, x, 3, 3, getMat(WD));
+      }
+
+      // Steps
+      voxel(house, 0, 0, -3, getMat(WL));
+      voxel(house, -1, 0, -3, getMat(WL));
+      voxel(house, 1, 0, -3, getMat(WL));
+
+      // Zen garden (sand area to the side)
+      for (let x = -5; x <= -3; x++)
+        for (let z = -1; z <= 2; z++)
+          voxel(house, x, 0, z, getMat(SND));
+      // Rake lines in sand (darker strips)
+      voxel(house, -4, 0, -1, getMat(STN));
+      voxel(house, -4, 0, 1, getMat(STN));
+      voxel(house, -5, 0, 0, getMat(STN));
+      // Zen stones
+      voxel(house, -4, 1, 0, getMat(STN));
+      voxel(house, -5, 1, 2, getMat('#6a6a6a'));
+    }
+  },
+  {
+    id: 'nordic',
+    name: 'Nordic Modern',
+    nameCN: '北欧现代',
+    desc: '纯白墙面 / 平屋顶 / 大玻璃窗 / 极简线条',
+    cx: 14,
+    build(house) {
+      const WL = '#f8f8f8', WLA = '#e8e8e8';
+      const RF = '#3a3a3a', WD_L = '#c4a46c';
+      const CC = '#d8d8d8', DR = '#b89868';
+      const GL = glassMat, FR = '#b0b0b0';
+
+      // Concrete foundation
+      fillY(house, 0, -4, 4, -2, 2, getMat(CC));
+
+      // Walls - 3 layers high
+      for (let y = 1; y <= 3; y++) {
+        const isTop = (y === 3);
+        for (let x = -4; x <= 4; x++) {
+          if (y <= 2 && x >= -2 && x <= 1) continue; // large doorway y=1-2
+          if (y === 3 && x >= -3 && x <= 2) continue; // clerestory window band
+          voxel(house, x, y, -2, getMat(isTop ? WLA : WL));
+          voxel(house, x, y, 2, getMat(isTop ? WLA : WL));
+        }
+        for (let z = -1; z <= 1; z++) {
+          if (y === 2 && z === 0) continue; // side window
+          if (y === 3 && z >= -1 && z <= 1) continue; // full side glazing at top
+          voxel(house, -4, y, z, getMat(WL));
+          voxel(house, 4, y, z, getMat(WLA));
+        }
+      }
+
+      // Glass panels - 3 layers high
+      for (let y = 1; y <= 3; y++) {
+        // Front glass (left of door) y=1-3
+        voxel(house, -2, y, -2, GL);
+        voxel(house, -1, y, -2, GL);
+        // Front glass (right of door) y=1-3
+        voxel(house, 1, y, -2, GL);
+        voxel(house, 2, y, -2, GL);
+        // Side glazing y=1-3
+        voxel(house, -4, y, 0, GL);
+        voxel(house, 4, y, 0, GL);
+      }
+      // Upper clerestory band (front)
+      for (let x = -3; x <= 2; x++) voxel(house, x, 3, -2, GL);
+      // Side full glazing at top
+      for (let z = -1; z <= 1; z++) {
+        voxel(house, -4, 3, z, GL);
+        voxel(house, 4, 3, z, GL);
+      }
+
+      // Glass vertical mullions
+      voxel(house, -3, 1, -2, getMat(FR));
+      voxel(house, -3, 2, -2, getMat(FR));
+      voxel(house, -3, 3, -2, getMat(FR));
+      voxel(house, 2, 1, -2, getMat(FR));
+      voxel(house, 2, 2, -2, getMat(FR));
+      voxel(house, 2, 3, -2, getMat(FR));
+
+      // Door (wood + glass modern door, 2 blocks tall)
+      voxel(house, 0, 1, -2, getMatSmooth(DR));
+      voxel(house, 0, 2, -2, getMatSmooth(DR));
+
+      // Flat roof at y=4 with overhang
+      for (let x = -5; x <= 5; x++)
+        for (let z = -3; z <= 3; z++)
+          voxel(house, x, 4, z, getMat(RF));
+      // Roof edge trim
+      for (let x = -5; x <= 5; x++) {
+        voxel(house, x, 4, -3, getMat('#505050'));
+        voxel(house, x, 4, 3, getMat('#505050'));
+      }
+      for (let z = -3; z <= 3; z++) {
+        voxel(house, -5, 4, z, getMat('#505050'));
+        voxel(house, 5, 4, z, getMat('#505050'));
+      }
+
+      // Wood accent panel on right side
+      voxel(house, 4, 1, -1, getMatSmooth(WD_L));
+      voxel(house, 4, 1, 1, getMatSmooth(WD_L));
+      voxel(house, 4, 2, -1, getMatSmooth(WD_L));
+      voxel(house, 4, 2, 1, getMatSmooth(WD_L));
+
+      // Ground-level accent - small stone path
+      for (let z = -3; z <= -1; z++) {
+        voxel(house, 0, 0, z, getMat('#c8c0b0'));
+        voxel(house, 1, 0, z, getMat('#c8c0b0'));
+      }
+
+      // Small planter box
+      voxel(house, -5, 1, -1, getMat(WD_L));
+      voxel(house, -5, 1, 0, getMat(WD_L));
+      voxel(house, -5, 2, -1, getMat('#5a8a4a'));
+    }
+  }
+];
+
+// ─── Build All Houses ──────────────────────
+const allHouseGroups = [];
+
+styles.forEach((style) => {
+  const house = new THREE.Group();
+  house.position.set(style.cx, 0, 0);
+  style.build(house);
+  world.add(house);
+  allHouseGroups.push({ group: house, style });
+});
+
+// ─── Paths ─────────────────────────────────
+styles.forEach((style) => {
+  const px = style.cx;
+  // Path from front of house extending forward
+  for (let z = -3; z <= -8; z++) {
+    voxel(world, px, 0, z, pathMat);
+    voxel(world, px + 1, 0, z, pathMat);
+  }
+});
+
+// ─── Decorative Elements ───────────────────
+// A few trees scattered around
+function addTree(x, z, h) {
+  const trunk = new THREE.Group();
+  for (let y = 0; y < h - 2; y++) voxel(trunk, 0, y, 0, getMat('#8b6914'));
+  world.add(trunk);
+  trunk.position.set(x, 0, z);
+  const leaves = new THREE.Group();
+  for (let dx = -2; dx <= 2; dx++)
+    for (let dz = -2; dz <= 2; dz++)
+      for (let dy = 0; dy < 3; dy++)
+        if (Math.abs(dx) + Math.abs(dz) + Math.abs(dy) < 4)
+          voxel(leaves, dx, h - 2 + dy, dz, getMat(['#4a8a3a', '#3a7a2a', '#5a9a4a'][Math.floor(Math.random() * 3)]));
+  world.add(leaves);
+  leaves.position.set(x, 0, z);
+}
+
+addTree(-20, 4, 6);
+addTree(-12, -6, 5);
+addTree(-8, 5, 7);
+addTree(0, -7, 4);
+addTree(8, 4, 6);
+addTree(12, -6, 5);
+addTree(20, 5, 7);
+addTree(22, -4, 4);
+
+// ─── HTML Labels ───────────────────────────
+const labelContainer = document.createElement('div');
+labelContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+document.body.appendChild(labelContainer);
+
+const labelEls = [];
+styles.forEach((style) => {
+  const el = document.createElement('div');
+  el.className = 'label';
+  el.innerHTML = `<div class="title">${style.name}</div><div class="subtitle">${style.nameCN} &middot; ${style.desc}</div>`;
+  labelContainer.appendChild(el);
+  labelEls.push({ el, worldPos: new THREE.Vector3(style.cx, 8.5, 0) });
+});
+
+// ─── Legend ────────────────────────────────
+const legend = document.getElementById('legend');
+const legendColors = [
+  { label: 'Pastel Cottage', color: '#f4dcd0' },
+  { label: 'Medieval Stone', color: '#8a8a8a' },
+  { label: 'Japanese Zen', color: '#4a3020' },
+  { label: 'Nordic Modern', color: '#f8f8f8' },
+];
+legend.innerHTML = legendColors.map(c =>
+  `<div class="legend-item"><div class="legend-dot" style="background:${c.color}"></div>${c.label}</div>`
+).join('');
+
+// ─── Post-Processing ───────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const PR = renderer.getPixelRatio();
+
+const renderPass = new RenderPass(scene, camera);
+const composer = new EffectComposer(renderer);
+composer.addPass(renderPass);
+
+// Shared passes (created once, enabled/disabled per preset)
+const fxaaPass = new ShaderPass(FXAAShader);
+fxaaPass.material.uniforms['resolution'].value.set(1 / (W * PR), 1 / (H * PR));
+
+// Halftone (comic/toon look)
+const halftonePass = new HalftonePass(W, H, {
+  shape: 1, radius: 3, rotateR: Math.PI / 12, rotateB: Math.PI / 12 * 2,
+  rotateG: Math.PI / 12 * 3, scatter: 0, blending: 1, blendingMode: 1, greyscale: false,
+});
+
+// Bloom for glow
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(W, H), 0.8, 0.4, 0.85);
+
+// Film grain
+const filmPass = new ShaderPass(FilmShader);
+filmPass.material.uniforms['intensity'].value = 0.25;
+filmPass.material.uniforms['grayscale'].value = false;
+
+// Vignette
+const vignettePass = new ShaderPass(VignetteShader);
+vignettePass.material.uniforms['offset'].value = 0.95;
+vignettePass.material.uniforms['darkness'].value = 1.0;
+
+// Color correction
+const colorPass = new ShaderPass(ColorCorrectionShader);
+
+// Gamma
+const gammaPass = new ShaderPass(GammaCorrectionShader);
+
+// Outline (toon edges)
+const outlinePass = new OutlinePass(new THREE.Vector2(W, H), scene, camera);
+outlinePass.edgeStrength = 2.5;
+outlinePass.edgeGlow = 0;
+outlinePass.edgeThickness = 1;
+outlinePass.pulsePeriod = 0;
+outlinePass.visibleEdgeColor.set('#1a1a2e');
+outlinePass.hiddenEdgeColor.set('#190a05');
+
+// Pixelation
+const pixelPass = new RenderPixelatedPass(4, scene, camera);
+pixelPass.normalEdgeStrength = 0;
+
+// Utility to reset composer to just renderPass
+function resetPasses() {
+  while (composer.passes.length > 1) composer.removePass(composer.passes[composer.passes.length - 1]);
+  // Disable all known passes
+  [outlinePass, bloomPass, filmPass, vignettePass, colorPass, gammaPass, halftonePass, pixelPass, fxaaPass].forEach(p => { if (p) p.renderToScreen = false; });
+}
+
+function add(pass, toScreen) {
+  pass.renderToScreen = !!toScreen;
+  composer.addPass(pass);
+}
+
+// ─── Preset Definitions ────────────────────
+function applyPreset(id) {
+  resetPasses();
+
+  switch (id) {
+    case 'default':
+      add(fxaaPass, true);
+      break;
+    case 'toon':
+      outlinePass.selectedObjects = allHouseGroups.map(h => h.group.children).flat().filter(c => c.isMesh);
+      add(outlinePass);
+      halftonePass.uniforms['radius'].value = 3;
+      add(halftonePass);
+      colorPass.material.uniforms['powRGB'].value = new THREE.Vector3(1.1, 1.1, 1.1);
+      colorPass.material.uniforms['mulRGB'].value = new THREE.Vector3(1.05, 0.95, 0.9);
+      add(colorPass);
+      add(fxaaPass, true);
+      break;
+    case 'warm':
+      filmPass.material.uniforms['grayscale'].value = false;
+      filmPass.material.uniforms['intensity'].value = 0.2;
+      add(filmPass);
+      vignettePass.material.uniforms['offset'].value = 0.92;
+      vignettePass.material.uniforms['darkness'].value = 1.2;
+      add(vignettePass);
+      colorPass.material.uniforms['powRGB'].value = new THREE.Vector3(1.15, 1.05, 0.9);
+      colorPass.material.uniforms['mulRGB'].value = new THREE.Vector3(1.05, 1.0, 0.9);
+      add(colorPass);
+      add(fxaaPass, true);
+      break;
+    case 'cool':
+      bloomPass.strength = 0.4;
+      bloomPass.radius = 0.5;
+      bloomPass.threshold = 0.7;
+      add(bloomPass);
+      colorPass.material.uniforms['powRGB'].value = new THREE.Vector3(0.95, 1.0, 1.15);
+      colorPass.material.uniforms['mulRGB'].value = new THREE.Vector3(0.95, 1.0, 1.05);
+      add(colorPass);
+      vignettePass.material.uniforms['offset'].value = 1.0;
+      vignettePass.material.uniforms['darkness'].value = 0.6;
+      add(vignettePass);
+      add(fxaaPass, true);
+      break;
+    case 'pastel':
+      bloomPass.strength = 1.2;
+      bloomPass.radius = 0.6;
+      bloomPass.threshold = 0.6;
+      add(bloomPass);
+      colorPass.material.uniforms['powRGB'].value = new THREE.Vector3(1.08, 1.02, 0.98);
+      colorPass.material.uniforms['mulRGB'].value = new THREE.Vector3(1.08, 1.04, 1.02);
+      add(colorPass);
+      vignettePass.material.uniforms['offset'].value = 0.88;
+      vignettePass.material.uniforms['darkness'].value = 0.7;
+      add(vignettePass);
+      add(fxaaPass, true);
+      break;
+    case 'pixel':
+      pixelPass.setPixelSize(4);
+      add(pixelPass, true);
+      break;
+  }
+}
+
+// ─── Shader Mode UI ────────────────────────
+const modeBar = document.createElement('div');
+modeBar.style.cssText = `
+  position:absolute; top:80px; left:50%; transform:translateX(-50%);
+  display:flex; gap:6px; z-index:10;
+`;
+document.body.appendChild(modeBar);
+
+const modes = [
+  { id: 'default', label: 'Default', desc: '默认 — FXAA抗锯齿' },
+  { id: 'toon', label: 'Toon', desc: '卡通描边 — Halftone+Outline' },
+  { id: 'warm', label: 'Warm', desc: '暖色胶片 — Film+Vignette' },
+  { id: 'cool', label: 'Cool', desc: '冷色清透 — Bloom+CoolGrade' },
+  { id: 'pastel', label: 'Pastel', desc: '柔和粉彩 — Bloom+SoftGrade' },
+  { id: 'pixel', label: 'Pixel', desc: '像素复古 — PixelatedPass' },
+];
+
+modes.forEach(m => {
+  const btn = document.createElement('button');
+  btn.textContent = m.label;
+  btn.title = m.desc;
+  btn.style.cssText = `
+    padding:6px 14px; border:1px solid rgba(255,255,255,0.2);
+    background:rgba(0,0,0,0.5); color:#aaa;
+    border-radius:6px; cursor:pointer; font-size:12px;
+    font-family:inherit; backdrop-filter:blur(8px);
+    transition: all 0.2s;
+  `;
+  btn.addEventListener('click', () => {
+    applyPreset(m.id);
+    modeBar.querySelectorAll('button').forEach(b => {
+      b.style.background = 'rgba(0,0,0,0.5)';
+      b.style.color = '#aaa';
+      b.style.borderColor = 'rgba(255,255,255,0.2)';
+    });
+    btn.style.background = 'rgba(255,255,255,0.15)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'rgba(255,255,255,0.5)';
+  });
+  if (m.id === 'default') {
+    btn.style.background = 'rgba(255,255,255,0.15)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'rgba(255,255,255,0.5)';
+  }
+  modeBar.appendChild(btn);
+});
+
+// Initial preset
+applyPreset('default');
+
+// ─── Render Loop ───────────────────────────
+function updateLabels() {
+  labelEls.forEach(({ el, worldPos }) => {
+    const v = worldPos.clone().project(camera);
+    el.style.left = ((v.x + 1) / 2 * window.innerWidth) + 'px';
+    el.style.top = ((-v.y + 1) / 2 * window.innerHeight) + 'px';
+    el.style.opacity = v.z < 1 ? 1 : 0;
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  updateLabels();
+  composer.render();
+}
+
+animate();
+
+// ─── Resize Handler ────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+console.log('🏠 体素房屋风格预览已就绪');
+console.log('  拖拽旋转 | 滚轮缩放 | 右键平移');
+console.log('  顶部按钮切换 6 种 Shader 风格预设');
+</script>
+</body>
+</html>

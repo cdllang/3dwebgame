@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>体素小镇 — 美术风格预览</title>
+<style>
+  :root { --bg: #FDFBF7; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden; height: 100vh;
+  }
+  canvas { display: block; }
+  .info {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(12px);
+    border: 1px solid rgba(0,0,0,0.06); border-radius: 8px;
+    padding: 8px 18px; font-size: 12px; color: #999; letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+<div class="info">拖拽旋转 &middot; 滚轮缩放 &middot; 网格溶解边缘 &middot; 移轴景深</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+
+// ──────────────────────────────────────────────
+// Scene & Renderer
+// ──────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#F2EFE9');
+scene.fog = new THREE.Fog('#F2EFE9', 40, 80);
+
+// ──────────────────────────────────────────────
+// Orthographic Camera — Isometric
+// ──────────────────────────────────────────────
+const frustumSize = 32;
+const aspect = window.innerWidth / window.innerHeight;
+const camera = new THREE.OrthographicCamera(
+  frustumSize * aspect / -2,
+  frustumSize * aspect / 2,
+  frustumSize / 2,
+  frustumSize / -2,
+  0.5,
+  120
+);
+
+// Isometric position: equal steps on X, Y, Z
+const camDist = 36;
+const isoAngle = Math.PI / 5; // ~36° elevation
+const isoY = Math.sin(isoAngle) * camDist;
+const isoH = Math.cos(isoAngle) * camDist;
+camera.position.set(isoH * 0.707, isoY, isoH * 0.707);
+camera.lookAt(0, 0, 0);
+
+// Orbit controls (clamped to prevent flipping)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minZoom = 0.5;
+controls.maxZoom = 3;
+controls.maxPolarAngle = Math.PI * 0.42;
+controls.update();
+
+// ──────────────────────────────────────────────
+// Lighting — Soft, no harsh shadows
+// ──────────────────────────────────────────────
+const ambient = new THREE.AmbientLight('#f0ebe0', 1.6);
+scene.add(ambient);
+
+const hemi = new THREE.HemisphereLight('#fff8f0', '#d8d0c4', 1.0);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight('#fffdf5', 2.7);
+sun.position.set(25, 35, 15);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 120;
+sun.shadow.camera.left = -40;
+sun.shadow.camera.right = 40;
+sun.shadow.camera.top = 40;
+sun.shadow.camera.bottom = -40;
+sun.shadow.bias = -0.00015;
+sun.shadow.normalBias = 0.02;
+sun.shadow.radius = 2.5; // soft shadow penumbra
+scene.add(sun);
+
+// ──────────────────────────────────────────────
+// Pastel Color Palette
+// ──────────────────────────────────────────────
+const PALETTE = {
+  grass:      '#c5d8b0',
+  grassLight: '#dce4cf',
+  path:       '#e8e0d0',
+  dissolved:  '#e8e4dd',
+  houseWarm:  '#f2d8c0',
+  houseCool:  '#c8d8e8',
+  houseGreen: '#c0d8c4',
+  housePink:  '#e8d0d4',
+  houseYellow:'#e8e0c0',
+  roofWarm:   '#d4a090',
+  roofCool:   '#8898b0',
+  roofGreen:  '#8aaa90',
+  roofPink:   '#c0a0a8',
+  roofYellow: '#b8a880',
+  trunk:      '#c8b898',
+  leaf1:      '#b0c8a0',
+  leaf2:      '#98b888',
+  leaf3:      '#c0d4b0',
+  water:      '#c8dce8',
+  fence:      '#e0d8cc',
+};
+
+// ──────────────────────────────────────────────
+// Material Factory
+// ──────────────────────────────────────────────
+function clayMat(hex, opts = {}) {
+  return new THREE.MeshStandardMaterial({
+    color: hex,
+    roughness: opts.roughness ?? 0.9,
+    metalness: 0,
+    transparent: opts.transparent ?? false,
+    opacity: opts.opacity ?? 1,
+    depthWrite: opts.depthWrite ?? !(opts.transparent ?? false),
+  });
+}
+
+const matCache = {};
+function getClay(hex, transparent = false, opacity = 1) {
+  const key = `${hex}_${transparent}_${opacity.toFixed(2)}`;
+  if (!matCache[key]) {
+    matCache[key] = clayMat(hex, { transparent, opacity, depthWrite: !transparent || opacity > 0.9 });
+  }
+  return matCache[key];
+}
+
+function dissolvedMat(baseHex, t) {
+  // t=0 → full color solid, t=1 → fully dissolved gray-white transparent
+  const c = new THREE.Color(baseHex);
+  const target = new THREE.Color(PALETTE.dissolved);
+  const dissolved = c.clone().lerp(target, t);
+  const opacity = THREE.MathUtils.lerp(1.0, 0.12, t);
+  return getClay('#' + dissolved.getHexString(), t > 0.01, Math.max(0.12, opacity));
+}
+
+// ──────────────────────────────────────────────
+// Grid System
+// ──────────────────────────────────────────────
+const GRID = 16;
+const TILE = 2;
+const SPACING = 2.05;
+const HALF = (GRID - 1) * SPACING / 2;
+const CORE_R = 4;    // fully colored core radius
+const EDGE_R = 8;    // fully dissolved at this radius
+
+function tilePos(tx, tz) {
+  return { x: tx * SPACING - HALF, z: tz * SPACING - HALF };
+}
+
+function dissolveFactor(tx, tz) {
+  const d = Math.max(Math.abs(tx - GRID / 2 + 0.5), Math.abs(tz - GRID / 2 + 0.5));
+  if (d <= CORE_R) return 0;
+  if (d >= EDGE_R) return 1;
+  return (d - CORE_R) / (EDGE_R - CORE_R);
+}
+
+// ──────────────────────────────────────────────
+// Build Scene
+// ──────────────────────────────────────────────
+const world = new THREE.Group();
+scene.add(world);
+
+// Shared geometry (reused)
+const tileGeo = new THREE.BoxGeometry(TILE * 0.95, 0.18, TILE * 0.95);
+const halfTileGeo = new THREE.BoxGeometry(TILE * 0.95, 0.09, TILE * 0.95);
+
+// Ground tiles
+const tiles = [];
+for (let tx = 0; tx < GRID; tx++) {
+  for (let tz = 0; tz < GRID; tz++) {
+    const { x, z } = tilePos(tx, tz);
+    const dissolve = dissolveFactor(tx, tz);
+    const baseColor = (tx + tz) % 3 === 0 ? PALETTE.grassLight : PALETTE.grass;
+    const mat = dissolvedMat(baseColor, dissolve);
+
+    // Thicker tile in core, thinner at edges (fading out)
+    const geo = dissolve > 0.5 ? halfTileGeo : tileGeo;
+    const tile = new THREE.Mesh(geo, mat);
+    tile.position.set(x, 0, z);
+    tile.receiveShadow = true;
+    if (dissolve < 0.3) tile.castShadow = true;
+    world.add(tile);
+    tiles.push({ mesh: tile, tx, tz, x, z, dissolve });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Building Helpers
+// ──────────────────────────────────────────────
+function makeRoofGeo(w, d, h) {
+  const shape = new THREE.Shape();
+  const hw = w / 2 + 0.3;
+  shape.moveTo(-hw, 0);
+  shape.lineTo(0, h);
+  shape.lineTo(hw, 0);
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: d + 0.6, bevelEnabled: false });
+}
+
+function addHouse(parent, x, z, dissolve, bodyHex, roofHex) {
+  const bodyGeo = new THREE.BoxGeometry(3.0, 2.2, 3.0);
+  const roofGeo = makeRoofGeo(3.0, 3.0, 1.6);
+
+  const bodyMat = dissolvedMat(bodyHex, dissolve);
+  const roofMat = dissolvedMat(roofHex, dissolve);
+
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(x, 1.2, z);
+  body.castShadow = dissolve < 0.3;
+  body.receiveShadow = true;
+  parent.add(body);
+
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(x, 2.3, z - 1.8);
+  roof.castShadow = dissolve < 0.3;
+  roof.receiveShadow = true;
+  parent.add(roof);
+
+  return { body, roof };
+}
+
+function addTree(parent, x, z, dissolve, height = 3) {
+  const trunkGeo = new THREE.BoxGeometry(0.6, height * 0.45, 0.6);
+  const trunkMat = dissolvedMat(PALETTE.trunk, dissolve);
+
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.set(x, height * 0.22, z);
+  trunk.castShadow = dissolve < 0.3;
+  trunk.receiveShadow = true;
+  parent.add(trunk);
+
+  // Canopy: 3 stacked boxes, each slightly wider
+  const leafColors = [PALETTE.leaf1, PALETTE.leaf2, PALETTE.leaf3];
+  const sizes = [1.6, 2.0, 1.4];
+  const yOffsets = [height * 0.38, height * 0.52, height * 0.64];
+
+  for (let i = 0; i < 3; i++) {
+    const leafGeo = new THREE.BoxGeometry(sizes[i], 0.7, sizes[i]);
+    const leafMat = dissolvedMat(leafColors[i], dissolve);
+    const leaf = new THREE.Mesh(leafGeo, leafMat);
+    leaf.position.set(x, yOffsets[i], z);
+    leaf.castShadow = dissolve < 0.3;
+    leaf.receiveShadow = true;
+    parent.add(leaf);
+  }
+
+  return { trunk };
+}
+
+function addBush(parent, x, z, dissolve) {
+  const geo = new THREE.BoxGeometry(1.0, 0.7, 1.0);
+  const mat = dissolvedMat(PALETTE.leaf2, dissolve);
+  const bush = new THREE.Mesh(geo, mat);
+  bush.position.set(x, 0.4, z);
+  bush.receiveShadow = true;
+  if (dissolve < 0.3) bush.castShadow = true;
+  parent.add(bush);
+  return bush;
+}
+
+function addFencePost(parent, x, z, dissolve) {
+  const geo = new THREE.CylinderGeometry(0.12, 0.14, 1.2, 6);
+  const mat = dissolvedMat(PALETTE.fence, dissolve);
+  const post = new THREE.Mesh(geo, mat);
+  post.position.set(x, 0.6, z);
+  post.castShadow = dissolve < 0.3;
+  post.receiveShadow = true;
+  parent.add(post);
+  return post;
+}
+
+// ──────────────────────────────────────────────
+// Place Buildings in Center
+// ──────────────────────────────────────────────
+const buildGroup = new THREE.Group();
+world.add(buildGroup);
+
+// Pre-define placements: { tx, tz, bodyColor, roofColor, type }
+const placements = [
+  { tx: 5, tz: 5, body: PALETTE.houseWarm, roof: PALETTE.roofWarm },
+  { tx: 8, tz: 6, body: PALETTE.houseCool, roof: PALETTE.roofCool },
+  { tx: 7, tz: 9, body: PALETTE.houseGreen, roof: PALETTE.roofGreen },
+  { tx: 10, tz: 8, body: PALETTE.housePink, roof: PALETTE.roofPink },
+  { tx: 6, tz: 11, body: PALETTE.houseYellow, roof: PALETTE.roofYellow },
+  { tx: 10, tz: 10, body: PALETTE.houseWarm, roof: PALETTE.roofCool },
+];
+
+placements.forEach(p => {
+  const { x, z } = tilePos(p.tx, p.tz);
+  const dissolve = dissolveFactor(p.tx, p.tz);
+  addHouse(buildGroup, x, z, dissolve, p.body, p.roof);
+});
+
+// Trees around houses
+const treeSpots = [
+  { tx: 4, tz: 4 }, { tx: 5, tz: 7 }, { tx: 6, tz: 4 },
+  { tx: 8, tz: 4 }, { tx: 9, tz: 7 }, { tx: 10, tz: 5 },
+  { tx: 7, tz: 12 }, { tx: 4, tz: 9 }, { tx: 9, tz: 12 },
+  { tx: 11, tz: 7 }, { tx: 11, tz: 11 }, { tx: 3, tz: 6 },
+  // Trees in dissolve zone
+  { tx: 2, tz: 3 }, { tx: 12, tz: 4 }, { tx: 13, tz: 9 },
+  { tx: 4, tz: 13 }, { tx: 12, tz: 13 },
+];
+
+treeSpots.forEach(s => {
+  const { x, z } = tilePos(s.tx, s.tz);
+  const dissolve = dissolveFactor(s.tx, s.tz);
+  const h = dissolve > 0.5 ? 2 : (2.5 + Math.random() * 1.5);
+  addTree(buildGroup, x, z, dissolve, h);
+});
+
+// Bushes in open spaces
+const bushSpots = [
+  { tx: 5, tz: 6 }, { tx: 6, tz: 8 }, { tx: 8, tz: 5 },
+  { tx: 9, tz: 9 }, { tx: 7, tz: 7 }, { tx: 6, tz: 10 },
+  { tx: 4, tz: 8 }, { tx: 8, tz: 11 }, { tx: 3, tz: 10 },
+];
+bushSpots.forEach(s => {
+  const { x, z } = tilePos(s.tx, s.tz);
+  const dissolve = dissolveFactor(s.tx, s.tz);
+  addBush(buildGroup, x, z, dissolve);
+});
+
+// Fence posts around some houses
+for (let i = 0; i < 30; i++) {
+  const tx = 4 + Math.floor(Math.random() * 8);
+  const tz = 4 + Math.floor(Math.random() * 8);
+  const dissolve = dissolveFactor(tx, tz);
+  if (dissolve < 0.4) {
+    const { x, z } = tilePos(tx, tz);
+    addFencePost(buildGroup, x + (Math.random() - 0.5) * 0.5, z + (Math.random() - 0.5) * 0.5, dissolve);
+  }
+}
+
+// Path tiles in center
+for (let t = 0; t < GRID; t++) {
+  // Diagonal-ish path
+  const tx = 6 + Math.floor(t / 3);
+  const tz = t;
+  if (tx < GRID && tz < GRID) {
+    const dissolve = dissolveFactor(tx, tz);
+    const { x, z } = tilePos(tx, tz);
+    const pathTile = new THREE.Mesh(
+      new THREE.BoxGeometry(TILE * 0.5, 0.2, TILE * 0.95),
+      dissolvedMat(PALETTE.path, dissolve)
+    );
+    pathTile.position.set(x, 0.1, z);
+    pathTile.receiveShadow = true;
+    world.add(pathTile);
+  }
+}
+
+// ──────────────────────────────────────────────
+// Post-Processing — BokehPass (Tilt-Shift DOF)
+// ──────────────────────────────────────────────
+const renderPass = new RenderPass(scene, camera);
+const composer = new EffectComposer(renderer);
+composer.addPass(renderPass);
+
+// Calculate focus distance: camera to center of grid
+const focusPoint = new THREE.Vector3(0, 0, 0);
+const focusDist = camera.position.distanceTo(focusPoint);
+
+const bokehPass = new BokehPass(scene, camera, {
+  focus: focusDist,
+  aperture: 0.00008,
+  maxblur: 0.003,
+});
+composer.addPass(bokehPass);
+
+// ──────────────────────────────────────────────
+// Render Loop
+// ──────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+
+  // Update focus as camera moves
+  const dist = camera.position.distanceTo(controls.target);
+  bokehPass.uniforms['focus'].value = dist;
+
+  composer.render();
+}
+animate();
+
+// ──────────────────────────────────────────────
+// Resize
+// ──────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  const a = window.innerWidth / window.innerHeight;
+  camera.left = frustumSize * a / -2;
+  camera.right = frustumSize * a / 2;
+  camera.top = frustumSize / 2;
+  camera.bottom = frustumSize / -2;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+console.log('🏠 体素小镇风格预览 v2 已就绪');
+console.log('  正交等距视角 | 马卡龙粘土质感 | 网格溶解边缘 | 移轴景深');
+</script>
+</body>
+</html>
