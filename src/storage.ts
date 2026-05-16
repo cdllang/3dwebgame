@@ -159,7 +159,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
       saveData = JSON.parse(raw);
     }
 
-    await createWorld(worldName);
+    await createWorld(worldName, saveData.gridSize ?? 12);
     const list = await getWorldList();
     if (list.length > 0) {
       await saveWorld(list[0].id, worldName, saveData);

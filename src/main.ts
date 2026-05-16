@@ -2425,7 +2425,7 @@ async function renderWorldModal() {
       switchToWorld(record.id, record.name, record.data);
       applyTemplate(templateId);
       renderWorldModal();
-      saveWorld();
+      await saveWorld();
     }
   });
 
