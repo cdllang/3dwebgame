@@ -60,6 +60,7 @@ function addWindow(g: THREE.Group, x: number, y: number, z: number, rotY: number
   w.position.set(x, y, z);
   w.rotation.y = rotY;
   w.userData.isHouseWindow = true;
+  w.userData.noMerge = true;
   g.add(w);
 }
 
@@ -79,6 +80,7 @@ function addWindowDetailed(g: THREE.Group, wx: number, wy: number, wz: number, r
   const halfGH = gh / 2;
   const glass = mesh(B(3, gh, 0.2), windowMat, 0, 0, 0);
   glass.userData.isHouseWindow = true;
+  glass.userData.noMerge = true;
   wg.add(glass);
   wg.add(mesh(B(3.4, 0.6, 0.3), windowFrameMat, 0, (halfGH + 0.2) * U, 0.05));
   wg.add(mesh(B(3.4, 0.6, 0.3), windowFrameMat, 0, -(halfGH + 0.2) * U, 0.05));
@@ -337,6 +339,7 @@ export function createMediumWoodenHouse(opts?: HouseOptions): THREE.Group {
   dormer.add(mesh(B(3.4, 0.5, 0.3), windowFrameMat, 0, -0.15, 1.05));
   const dGlass = mesh(B(3, 2.5, 0.15), windowMat, 0, 0.18, 1.0);
   dGlass.userData.isHouseWindow = true;
+  dGlass.userData.noMerge = true;
   dormer.add(dGlass);
   dormer.position.set(0, dormerY, (D/2 - 1.7) * U);
   inner.add(dormer);
