@@ -214,7 +214,7 @@ function getBuildingInner(defId: string, gridW: number, gridD: number): { innerW
 
 // ─── Sub-Cell Navigation Grid ──────────────────
 export const SUB = 5;
-const NAV = GRID * SUB; // 60
+export function getNavSize(): number { return GRID * SUB; }
 
 function subToWorld(sx: number, sz: number): [number, number] {
   const gx = Math.floor(sx / SUB);
@@ -230,8 +230,8 @@ function worldToSub(wx: number, wz: number): [number, number] {
   const sx = Math.round((wx + getHalf()) / (SPACING / SUB) + halfSub);
   const sz = Math.round((wz + getHalf()) / (SPACING / SUB) + halfSub);
   return [
-    THREE.MathUtils.clamp(sx, 0, NAV - 1),
-    THREE.MathUtils.clamp(sz, 0, NAV - 1),
+    THREE.MathUtils.clamp(sx, 0, getNavSize() - 1),
+    THREE.MathUtils.clamp(sz, 0, getNavSize() - 1),
   ];
 }
 
@@ -241,7 +241,7 @@ export function invalidateNavCache() { cachedNavGrid = null; }
 
 export function buildNavGrid(): boolean[][] {
   if (cachedNavGrid) return cachedNavGrid;
-  const grid: boolean[][] = Array.from({ length: NAV }, () => new Array(NAV).fill(false));
+  const grid: boolean[][] = Array.from({ length: getNavSize() }, () => new Array(getNavSize()).fill(false));
 
   for (const pb of placedBuildings) {
     const isFence = pb.def.id === 'fence';
@@ -346,7 +346,7 @@ function getHouseAdjacentSubs(homeGx: number, homeGz: number, homeW: number, hom
       const onRing = sx === sx0 || sx === sx1 || sz === sz0 || sz === sz1;
       if (!onRing) continue;
       // Must be on the world grid and not occupied by another building
-      if (sx < 0 || sx >= NAV || sz < 0 || sz >= NAV) continue;
+      if (sx < 0 || sx >= getNavSize() || sz < 0 || sz >= getNavSize()) continue;
       const gx = Math.floor(sx / SUB);
       const gz = Math.floor(sz / SUB);
       // Allow if this sub-cell is in a free cell, or if it's part of the house itself
@@ -405,7 +405,7 @@ function findSubPath(navGrid: boolean[][], startSx: number, startSz: number, end
     for (const [dx, dz] of DIRS_8) {
       const nx = cx + dx;
       const nz = cz + dz;
-      if (nx < 0 || nx >= NAV || nz < 0 || nz >= NAV) continue;
+      if (nx < 0 || nx >= getNavSize() || nz < 0 || nz >= getNavSize()) continue;
       const nKey = key(nx, nz);
       if (closedSet.has(nKey) || navGrid[nx][nz]) continue;
       if (dx !== 0 && dz !== 0) {
@@ -785,8 +785,8 @@ function pickWanderTarget(npc: NPCData): boolean {
   const [curSx, curSz] = worldToSub(fromWx, fromWz);
   const wanderCandidates: [number, number][] = [];
   const searchRadius = 15;
-  for (let sx = Math.max(0, curSx - searchRadius); sx <= Math.min(NAV - 1, curSx + searchRadius); sx++) {
-    for (let sz = Math.max(0, curSz - searchRadius); sz <= Math.min(NAV - 1, curSz + searchRadius); sz++) {
+  for (let sx = Math.max(0, curSx - searchRadius); sx <= Math.min(getNavSize() - 1, curSx + searchRadius); sx++) {
+    for (let sz = Math.max(0, curSz - searchRadius); sz <= Math.min(getNavSize() - 1, curSz + searchRadius); sz++) {
       if (!navGrid[sx][sz]) wanderCandidates.push([sx, sz]);
     }
   }

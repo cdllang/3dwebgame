@@ -16,7 +16,7 @@ import {
   getWorldList, createWorld, deleteWorld, renameWorld, migrateFromLocalStorage,
   type SaveData, type WorldMeta,
 } from './storage';
-import { spawnNPC, despawnNPC, despawnAllNPCs, updateNPCs, npcs, buildNavGrid, SUB, invalidateNavCache, createLabel } from './npc';
+import { spawnNPC, despawnNPC, despawnAllNPCs, updateNPCs, npcs, buildNavGrid, SUB, invalidateNavCache, createLabel, getNavSize } from './npc';
 import { playPlace, playDelete, playPaint, playUndo, playRedo } from './sound';
 
 // ─── Renderer ────────────────────────────────
@@ -2578,10 +2578,8 @@ function toggleHUD() {
 }
 
 // ─── Nav Debug Overlay ─────────────────────────
-const NAV = GRID * SUB; // 60
 let navDebugVisible = false;
 const navDebugCanvas = document.createElement('canvas');
-navDebugCanvas.width = NAV; navDebugCanvas.height = NAV;
 const navDebugCtx = navDebugCanvas.getContext('2d')!;
 const navDebugTex = new THREE.CanvasTexture(navDebugCanvas);
 navDebugTex.magFilter = THREE.NearestFilter;
@@ -2600,10 +2598,12 @@ const navDebugSavedMats = new Map<THREE.Material, { transparent: boolean; opacit
 
 function updateNavDebugOverlay() {
   const grid = buildNavGrid();
-  const imgData = navDebugCtx.createImageData(NAV, NAV);
-  for (let sz = 0; sz < NAV; sz++) {
-    for (let sx = 0; sx < NAV; sx++) {
-      const idx = (sz * NAV + sx) * 4;
+  const n = getNavSize();
+  navDebugCanvas.width = n; navDebugCanvas.height = n;
+  const imgData = navDebugCtx.createImageData(n, n);
+  for (let sz = 0; sz < n; sz++) {
+    for (let sx = 0; sx < n; sx++) {
+      const idx = (sz * n + sx) * 4;
       if (grid[sx][sz]) {
         imgData.data[idx] = 200; imgData.data[idx + 1] = 60; imgData.data[idx + 2] = 60; imgData.data[idx + 3] = 200;
       } else {
@@ -2939,20 +2939,24 @@ let fpsFrames = 0, fpsTime = performance.now();
 
 function animate(): void {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.1); // cap to avoid jumps
-  controls.update();
-  updateDayNight(dt);
-  updateFireflies(dt);
-  updateNPCs(dt, timeOfDay, timeSpeed, scene);
-  // Water wave animation
-  let t = performance.now() * 0.001;
-  waterTileMeshes.forEach(wt => {
-    const wave = Math.sin(wt.wx * 3.0 + t * 2.0) * Math.cos(wt.wz * 2.5 + t * 1.6) * 0.12
-               + Math.sin(wt.wx * 5.0 - t * 1.4) * Math.cos(wt.wz * 4.5 + t * 2.2) * 0.07
-               + Math.sin((wt.wx + wt.wz) * 4.0 + t * 3.0) * 0.05;
-    wt.mesh.position.y = wt.baseY + wave;
-  });
-  updateDebugPanel();
+  try {
+    const dt = Math.min(clock.getDelta(), 0.1); // cap to avoid jumps
+    controls.update();
+    updateDayNight(dt);
+    updateFireflies(dt);
+    updateNPCs(dt, timeOfDay, timeSpeed, scene);
+    // Water wave animation
+    let t = performance.now() * 0.001;
+    waterTileMeshes.forEach(wt => {
+      const wave = Math.sin(wt.wx * 3.0 + t * 2.0) * Math.cos(wt.wz * 2.5 + t * 1.6) * 0.12
+                 + Math.sin(wt.wx * 5.0 - t * 1.4) * Math.cos(wt.wz * 4.5 + t * 2.2) * 0.07
+                 + Math.sin((wt.wx + wt.wz) * 4.0 + t * 3.0) * 0.05;
+      wt.mesh.position.y = wt.baseY + wave;
+    });
+    updateDebugPanel();
+  } catch (e) {
+    console.error('Animation frame error:', e);
+  }
 
   // FPS counter
   fpsFrames++;
