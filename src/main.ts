@@ -1210,6 +1210,9 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'h' || e.key === 'H') {
     toggleHUD();
   }
+  if (e.key === 'p' || e.key === 'P') {
+    showTutorial();
+  }
   if (e.key === 'n' || e.key === 'N') {
     toggleNavDebug();
   }
@@ -1844,6 +1847,7 @@ const FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
 
 // Wrapper — thin strip at bottom
 const bar = document.createElement('div');
+bar.id = 'catalog-bar';
 bar.style.cssText = `
   position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:20;
   display:flex; align-items:center; gap:14px;
@@ -1960,9 +1964,13 @@ function renderCatalog() {
 renderCatalog();
 
 // Ground type selector
+const groundRow = document.createElement('div');
+groundRow.className = 'ground-swatch-row';
+groundRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
 const groundDivider = document.createElement('div');
 groundDivider.style.cssText = 'width:1px;height:16px;background:#e8e4db;border-radius:1px;';
 bar.appendChild(groundDivider);
+bar.appendChild(groundRow);
 
 const groundSwatches: HTMLElement[] = [];
 GROUND_TYPES.forEach(gt => {
@@ -1988,14 +1996,14 @@ GROUND_TYPES.forEach(gt => {
       });
     }
   });
-  bar.appendChild(swatch);
+  groundRow.appendChild(swatch);
   groundSwatches.push(swatch);
 });
 
 // Clear-all button (double-confirm)
 const clearDivider = document.createElement('div');
 clearDivider.style.cssText = 'width:1px;height:16px;background:#e8e4db;border-radius:1px;';
-bar.appendChild(clearDivider);
+groundRow.appendChild(clearDivider);
 
 let clearTimer: ReturnType<typeof setTimeout> | null = null;
 const clearBtn = document.createElement('button');
@@ -2049,7 +2057,7 @@ clearBtn.addEventListener('click', () => {
     }, 3000);
   }
 });
-bar.appendChild(clearBtn);
+groundRow.appendChild(clearBtn);
 
 // ─── Hint ─────────────────────────────────────
 const hint = document.createElement('div');
@@ -2059,7 +2067,7 @@ hint.style.cssText = `
   border-radius:10px; font-size:10px; font-family:${FONT};
   pointer-events:none; letter-spacing:0.3px;
 `;
-hint.textContent = '选择建筑 → 预览 → R旋转 → 放置 → E重选上次 → 右键删除 → Esc取消 → H隐藏UI → N寻路视图';
+hint.textContent = '选择建筑 → 预览 → R旋转 → 放置 → E重选上次 → 右键删除 → Esc取消 → H隐藏UI → N寻路视图 → P帮助';
 document.body.appendChild(hint);
 
 // ─── World Label (top-left) ──────────────────
@@ -2074,6 +2082,7 @@ worldLabel.style.cssText = `
   cursor:pointer; user-select:none;
   pointer-events:auto;
 `;
+worldLabel.id = 'world-label';
 worldLabel.title = '点击管理世界';
 worldLabel.addEventListener('click', toggleWorldModal);
 document.body.appendChild(worldLabel);
@@ -2697,6 +2706,220 @@ async function initWorld() {
   }
   worldReady = true;
   lastThumbnailTime = 0; // ensure first save captures thumbnail for default world
+  // Show tutorial on first visit
+  if (!localStorage.getItem('voxel_tutorial_seen')) {
+    setTimeout(showTutorial, 500);
+  }
+}
+
+// ─── Tutorial Overlay ─────────────────────────
+function showTutorial() {
+  const steps = [
+    {
+      title: '欢迎来到体素小世界！',
+      desc: '你是这个世界的创世神。<br>自由建造，没有任务，没有目标。',
+      target: null as string | null,
+    },
+    {
+      title: '视角操作',
+      desc: '<b>左键拖拽</b>旋转视角 · <b>滚轮</b>缩放 · <b>右键拖拽</b>平移<br>试试调整到你喜欢的角度~',
+      target: null,
+    },
+    {
+      title: '建筑目录',
+      desc: '底部栏中间是<b>建筑模板目录</b>。<br>切换分类标签选择房屋/设施/装饰。<br>按 <b>E 键</b>可快速重选上次建筑。',
+      target: '#catalog-bar',
+    },
+    {
+      title: '放置建筑',
+      desc: '选中建筑后，在网格上<b>点击</b>放置。<br>按 <b>R 键</b>旋转朝向，<b>右键</b>拆除。<br>放置房屋后会<b>自动生成居民 NPC</b>~',
+      target: null,
+    },
+    {
+      title: '地面涂色',
+      desc: '点击右下角 <b>色块圆圈</b>切换到涂色模式，<br>再点击地面即可更改地块类型。<br>试试沙滩和水的组合吧~',
+      target: '.ground-swatch-row',
+    },
+    {
+      title: '世界管理',
+      desc: '点击左上角 <b>世界名称</b>打开管理面板。<br>可创建多世界、导出/导入 JSON、<br>选择世界尺寸和初始模板。',
+      target: '#world-label',
+    },
+    {
+      title: '开始创造吧！',
+      desc: '按 <b>N 键</b>查看 NPC 寻路网格。<br>按 <b>H 键</b>隐藏界面方便截图。<br>按 <b>P 键</b>可随时重新打开本教程。<br>祝你在小世界中玩得开心 🎨',
+      target: null,
+    },
+  ];
+
+  let stepIdx = 0;
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:500;pointer-events:none;';
+
+  const tooltip = document.createElement('div');
+  tooltip.style.cssText = `
+    position:fixed; z-index:501; pointer-events:auto;
+    background:rgba(255,255,255,0.96); border-radius:12px;
+    padding:16px 20px; box-shadow:0 4px 24px rgba(0,0,0,0.15);
+    font-family:${FONT}; max-width:280px;
+    transition: opacity 0.3s, transform 0.3s;
+  `;
+  overlay.appendChild(tooltip);
+
+  const prevBtn = document.createElement('button');
+  prevBtn.textContent = '← 上一步';
+  Object.assign(prevBtn.style, {
+    padding:'5px 12px', border:'1px solid #e0dcd4', borderRadius:'6px',
+    background:'#fff', color:'#888', cursor:'pointer', fontSize:'12px',
+    fontFamily: FONT, display:'none',
+  });
+  prevBtn.addEventListener('click', () => { if (stepIdx > 0) showStep(--stepIdx); });
+
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = '下一步 →';
+  Object.assign(nextBtn.style, {
+    padding:'5px 14px', border:'none', borderRadius:'6px',
+    background:'#b0c8a0', color:'#fff', cursor:'pointer', fontSize:'12px',
+    fontFamily: FONT,
+  });
+
+  const skipBtn = document.createElement('button');
+  skipBtn.textContent = '跳过引导';
+  Object.assign(skipBtn.style, {
+    padding:'5px 12px', border:'1px solid #e0dcd4', borderRadius:'6px',
+    background:'#fff', color:'#bbb', cursor:'pointer', fontSize:'11px',
+    fontFamily: FONT,
+  });
+
+  const doneBtn = document.createElement('button');
+  doneBtn.textContent = '开始建造！';
+  Object.assign(doneBtn.style, {
+    padding:'6px 18px', border:'none', borderRadius:'8px',
+    background:'#88c0a0', color:'#fff', cursor:'pointer', fontSize:'14px',
+    fontFamily: FONT, display:'none',
+  });
+
+  function finish() {
+    localStorage.setItem('voxel_tutorial_seen', '1');
+    overlay.remove();
+  }
+
+  skipBtn.addEventListener('click', finish);
+  nextBtn.addEventListener('click', () => {
+    if (stepIdx < steps.length - 1) showStep(++stepIdx);
+  });
+  doneBtn.addEventListener('click', finish);
+
+  function showStep(idx: number) {
+    stepIdx = idx;
+    const s = steps[idx];
+    const isLast = idx === steps.length - 1;
+    const isFirst = idx === 0;
+
+    prevBtn.style.display = isFirst ? 'none' : '';
+    nextBtn.style.display = isLast ? 'none' : '';
+    doneBtn.style.display = isLast ? '' : 'none';
+    skipBtn.style.display = isLast ? 'none' : '';
+
+    tooltip.innerHTML = `
+      <div style="font-size:14px;font-weight:600;color:#555;margin-bottom:8px;">
+        ${idx + 1}/${steps.length} · ${s.title}
+      </div>
+      <div style="font-size:12px;color:#777;line-height:1.8;">
+        ${s.desc}
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:12px;">
+      </div>
+    `;
+    const btnRow = tooltip.querySelector('div:last-child')!;
+    btnRow.appendChild(skipBtn);
+    btnRow.appendChild(prevBtn);
+    btnRow.appendChild(nextBtn);
+    btnRow.appendChild(doneBtn);
+
+    // Position tooltip near target element or centered
+    if (s.target) {
+      const el = document.querySelector(s.target);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const tw = 280;
+        let left = r.left + r.width / 2 - tw / 2;
+        // Prefer below the target; go above if not enough room below
+        const showBelow = r.bottom + 220 < window.innerHeight;
+        let top = showBelow ? r.bottom + 10 : r.top - 10;
+        // Clamp horizontally
+        if (left < 10) left = 10;
+        if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+        tooltip.style.transform = showBelow ? 'none' : 'translateY(-100%)';
+      } else {
+        positionCenter();
+      }
+    } else {
+      positionCenter();
+    }
+
+    // Draw highlight overlay on a canvas behind the tooltip
+    drawHighlight(s.target);
+  }
+
+  function positionCenter() {
+    tooltip.style.left = '50%';
+    tooltip.style.top = '45%';
+    tooltip.style.transform = 'translate(-50%, -50%)';
+  }
+
+  // Canvas overlay for dimming + spotlight cutout
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:499;pointer-events:none;';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  overlay.appendChild(canvas);
+  const ctx = canvas.getContext('2d')!;
+
+  function drawHighlight(targetSelector: string | null) {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Dim background
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (targetSelector) {
+      const el = document.querySelector(targetSelector);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        // Cutout a rounded rectangle spotlight
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        const x = r.left - 6, y = r.top - 6, w = r.width + 12, h = r.height + 12, rad = 8;
+        ctx.beginPath();
+        ctx.moveTo(x + rad, y);
+        ctx.lineTo(x + w - rad, y);
+        ctx.arcTo(x + w, y, x + w, y + rad, rad);
+        ctx.lineTo(x + w, y + h - rad);
+        ctx.arcTo(x + w, y + h, x + w - rad, y + h, rad);
+        ctx.lineTo(x + rad, y + h);
+        ctx.arcTo(x, y + h, x, y + h - rad, rad);
+        ctx.lineTo(x, y + rad);
+        ctx.arcTo(x, y, x + rad, y, rad);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        // Glow border
+        ctx.strokeStyle = 'rgba(176,200,160,0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Redraw highlight on resize
+  window.addEventListener('resize', () => drawHighlight(steps[stepIdx].target));
+
+  document.body.appendChild(overlay);
+  showStep(0);
 }
 
 initWorld();
