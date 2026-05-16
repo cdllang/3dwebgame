@@ -1980,7 +1980,7 @@ async function renderWorldModal() {
         ">
           <option value="12">12×12</option>
           <option value="16">16×16</option>
-          <option value="32">32×32</option>
+          <option value="24">24×24</option>
         </select>
         <button id="wm-create" style="
           padding:8px 20px; border:none; border-radius:6px;
