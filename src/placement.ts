@@ -41,15 +41,22 @@ export function canPlaceAt(gx: number, gz: number, gridW: number, gridD: number)
 
 // ─── Grid Config ─────────────────────────────
 export const SPACING = 2.05;
-export const GRID = 12;
-export const HALF = (GRID - 1) * SPACING / 2;
+export let GRID = 12;
+export function getHalf(): number { return (GRID - 1) * SPACING / 2; }
+export function setGridSize(size: number): void {
+  GRID = size;
+  // Clear occupancy when grid size changes
+  occupied.clear();
+}
 
 export function gridToWorld(gx: number, gz: number): [number, number] {
-  return [gx * SPACING - HALF, gz * SPACING - HALF];
+  const h = getHalf();
+  return [gx * SPACING - h, gz * SPACING - h];
 }
 
 export function worldToGrid(wx: number, wz: number): [number, number] {
-  return [Math.round((wx + HALF) / SPACING), Math.round((wz + HALF) / SPACING)];
+  const h = getHalf();
+  return [Math.round((wx + h) / SPACING), Math.round((wz + h) / SPACING)];
 }
 
 // ─── Ghost Preview ───────────────────────────

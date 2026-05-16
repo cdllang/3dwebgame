@@ -6,7 +6,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BUILDINGS, type BuildingDef } from './buildings';
 import {
-  SPACING, GRID, HALF, gridToWorld, worldToGrid,
+  SPACING, GRID, getHalf, setGridSize, gridToWorld, worldToGrid,
   canPlaceAt, markOccupied, clearOccupied, applyGhostMaterial,
   type Rotation, type PlacedBuilding, placedBuildings, addPlaced,
   rotate,
@@ -339,10 +339,10 @@ function updateFireflies(dt: number) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 0.8 + Math.random() * 3.5;
       f.target.x = THREE.MathUtils.clamp(
-        f.sprite.position.x + Math.cos(angle) * dist, -HALF - 0.5, HALF + 0.5,
+        f.sprite.position.x + Math.cos(angle) * dist, -getHalf() - 0.5, getHalf() + 0.5,
       );
       f.target.z = THREE.MathUtils.clamp(
-        f.sprite.position.z + Math.sin(angle) * dist, -HALF - 0.5, HALF + 0.5,
+        f.sprite.position.z + Math.sin(angle) * dist, -getHalf() - 0.5, getHalf() + 0.5,
       );
       f.target.y = THREE.MathUtils.clamp(0.3 + Math.random() * 3.0, 0.2, 3.5);
       f.timer = 2 + Math.random() * 5;
@@ -573,6 +573,29 @@ function rebuildGroundMeshes() {
 
 rebuildGroundMeshes();
 
+function rebuildGroundTiles() {
+  const oldW = tileTypes.length;
+  const oldD = oldW > 0 ? tileTypes[0].length : 0;
+  const newW = GRID;
+  // Allocate new array
+  const fresh: string[][] = [];
+  for (let tx = 0; tx < newW; tx++) {
+    fresh[tx] = [];
+    for (let tz = 0; tz < newW; tz++) {
+      fresh[tx][tz] = (tx + tz) % 3 === 0 ? 'grass_dark' : 'grass_light';
+    }
+  }
+  // Copy overlapping region
+  for (let tx = 0; tx < Math.min(oldW, newW); tx++) {
+    for (let tz = 0; tz < Math.min(oldD, newW); tz++) {
+      if (tileTypes[tx] && tileTypes[tx][tz]) fresh[tx][tz] = tileTypes[tx][tz];
+    }
+  }
+  tileTypes.length = 0;
+  for (let tx = 0; tx < newW; tx++) tileTypes[tx] = fresh[tx];
+  rebuildGroundMeshes();
+}
+
 // ─── Post-Processing (Bokeh DOF) ─────────────
 const renderPass = new RenderPass(scene, camera);
 const composer = new EffectComposer(renderer);
@@ -637,8 +660,8 @@ function updateGhost(gx: number, gz: number) {
   applyGhostMaterial(ghost, ok ? ghostOk : ghostBad);
 
   // Place ghost centered on footprint
-  const cx = (gx + (gridW - 1) / 2) * SPACING - HALF;
-  const cz = (gz + (gridD - 1) / 2) * SPACING - HALF;
+  const cx = (gx + (gridW - 1) / 2) * SPACING - getHalf();
+  const cz = (gz + (gridD - 1) / 2) * SPACING - getHalf();
   ghost.position.set(cx, 0, cz);
   ghost.visible = true;
 
@@ -704,8 +727,8 @@ function performUndo() {
     mergeGroupMeshes(inst);
     const rot = action.rotation ?? 0;
     const { gridW, gridD } = rotate(def, rot as Rotation);
-    const cx = (action.gx + (gridW - 1) / 2) * SPACING - HALF;
-    const cz = (action.gz + (gridD - 1) / 2) * SPACING - HALF;
+    const cx = (action.gx + (gridW - 1) / 2) * SPACING - getHalf();
+    const cz = (action.gz + (gridD - 1) / 2) * SPACING - getHalf();
     inst.position.set(cx, 0, cz);
     inst.rotation.y = THREE.MathUtils.degToRad(rot);
     scene.add(inst);
@@ -760,8 +783,8 @@ function performRedo() {
     mergeGroupMeshes(inst);
     const rot = action.rotation ?? 0;
     const { gridW, gridD } = rotate(def, rot as Rotation);
-    const cx = (action.gx + (gridW - 1) / 2) * SPACING - HALF;
-    const cz = (action.gz + (gridD - 1) / 2) * SPACING - HALF;
+    const cx = (action.gx + (gridW - 1) / 2) * SPACING - getHalf();
+    const cz = (action.gz + (gridD - 1) / 2) * SPACING - getHalf();
     inst.position.set(cx, 0, cz);
     inst.rotation.y = THREE.MathUtils.degToRad(rot);
     scene.add(inst);
@@ -843,8 +866,8 @@ function placeBuilding(gx: number, gz: number) {
 
   const inst = selectedDef.factory(selectedDef.defaultOpts);
   mergeGroupMeshes(inst);
-  const cx = (gx + (gridW - 1) / 2) * SPACING - HALF;
-  const cz = (gz + (gridD - 1) / 2) * SPACING - HALF;
+  const cx = (gx + (gridW - 1) / 2) * SPACING - getHalf();
+  const cz = (gz + (gridD - 1) / 2) * SPACING - getHalf();
   inst.position.set(cx, 0, cz);
   inst.rotation.y = THREE.MathUtils.degToRad(selectedRotation);
   scene.add(inst);
@@ -1097,8 +1120,8 @@ function restoreWorld(data: SaveData) {
       const inst = def.factory(def.defaultOpts);
       mergeGroupMeshes(inst);
       const { gridW, gridD } = rotate(def, rotation as Rotation);
-      const cx = (gx + (gridW - 1) / 2) * SPACING - HALF;
-      const cz = (gz + (gridD - 1) / 2) * SPACING - HALF;
+      const cx = (gx + (gridW - 1) / 2) * SPACING - getHalf();
+      const cz = (gz + (gridD - 1) / 2) * SPACING - getHalf();
       inst.position.set(cx, 0, cz);
       inst.rotation.y = THREE.MathUtils.degToRad(rotation);
       scene.add(inst);
@@ -1123,6 +1146,9 @@ function restoreWorld(data: SaveData) {
 }
 
 function switchToWorld(id: string, name: string, data: SaveData) {
+  // Set grid size from saved data (default 12 for backwards compat)
+  setGridSize(data.gridSize ?? 12);
+  rebuildGroundTiles();
   // Clear current world
   clearGhost();
   updateCatalogButtons();
@@ -1948,6 +1974,14 @@ async function renderWorldModal() {
         <input id="wm-new-name" type="text" placeholder="新世界名称" value=""
           style="flex:1; padding:8px 12px; border:1px solid #e0dcd4; border-radius:6px;
             font-size:14px; font-family:${FONT}; outline:none;">
+        <select id="wm-grid-size" style="
+          padding:8px 12px; border:1px solid #e0dcd4; border-radius:6px;
+          font-size:14px; font-family:${FONT}; background:#fff; color:#666;
+        ">
+          <option value="12">12×12</option>
+          <option value="16">16×16</option>
+          <option value="32">32×32</option>
+        </select>
         <button id="wm-create" style="
           padding:8px 20px; border:none; border-radius:6px;
           background:#b0c8a0; color:#fff; cursor:pointer; font-size:14px;
@@ -2042,8 +2076,10 @@ async function renderWorldModal() {
   worldModal.querySelector('#wm-create')!.addEventListener('click', async () => {
     const input = worldModal.querySelector('#wm-new-name') as HTMLInputElement;
     const name = input.value.trim() || '未命名世界';
+    const sizeSelect = worldModal.querySelector('#wm-grid-size') as HTMLSelectElement;
+    const gridSize = parseInt(sizeSelect.value) || 12;
     await saveWorld();
-    const meta = await createWorld(name);
+    const meta = await createWorld(name, gridSize);
     const record = await dbLoadWorld(meta.id);
     if (record) {
       switchToWorld(record.id, record.name, record.data);
@@ -2087,15 +2123,17 @@ async function renderWorldModal() {
       const text = await file.text();
       const json = JSON.parse(text);
       const name = json.meta?.name ?? file.name.replace('.json', '');
+      const gridSize = json.meta?.gridSize ?? json.gridSize ?? 12;
       const data: SaveData = {
         version: json.version ?? 1,
+        gridSize,
         timeOfDay: json.worldTime?.timeOfDay ?? 0.35,
         buildings: json.buildings ?? [],
         tiles: json.tiles ?? [],
         npcs: json.npcs ?? [],
         thumbnail: json.thumbnail,
       };
-      const meta = await createWorld(name);
+      const meta = await createWorld(name, gridSize);
       await dbSaveWorld(meta.id, name, data);
       await saveWorld();
       switchToWorld(meta.id, name, data);

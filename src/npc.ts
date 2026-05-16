@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SPACING, GRID, HALF, gridToWorld, worldToGrid, isCellFree, type PlacedBuilding, placedBuildings } from './placement';
+import { SPACING, GRID, getHalf, gridToWorld, worldToGrid, isCellFree, type PlacedBuilding, placedBuildings } from './placement';
 
 // ─── NPC Name Pool ───────────────────────────
 const NPC_NAMES = [
@@ -214,8 +214,8 @@ function subToWorld(sx: number, sz: number): [number, number] {
 
 function worldToSub(wx: number, wz: number): [number, number] {
   const halfSub = (SUB - 1) / 2; // = 2 for SUB=5
-  const sx = Math.round((wx + HALF) / (SPACING / SUB) + halfSub);
-  const sz = Math.round((wz + HALF) / (SPACING / SUB) + halfSub);
+  const sx = Math.round((wx + getHalf()) / (SPACING / SUB) + halfSub);
+  const sz = Math.round((wz + getHalf()) / (SPACING / SUB) + halfSub);
   return [
     THREE.MathUtils.clamp(sx, 0, NAV - 1),
     THREE.MathUtils.clamp(sz, 0, NAV - 1),

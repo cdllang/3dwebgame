@@ -2,6 +2,7 @@
 
 export interface SaveData {
   version: number;
+  gridSize?: number; // default 12 if absent (backwards compat)
   timeOfDay: number;
   buildings: { defId: string; gx: number; gz: number; rotation: number }[];
   tiles?: string[][];
@@ -119,7 +120,7 @@ export async function deleteWorld(id: string): Promise<void> {
   });
 }
 
-export async function createWorld(name: string): Promise<WorldMeta> {
+export async function createWorld(name: string, gridSize: number = 12): Promise<WorldMeta> {
   const id = `world_${Date.now()}`;
   const now = new Date().toISOString();
   const db = await openDB();
@@ -127,7 +128,7 @@ export async function createWorld(name: string): Promise<WorldMeta> {
     const tx = db.transaction(STORE, 'readwrite');
     const record: WorldRecord = {
       id, name, createdAt: now, updatedAt: now,
-      data: { version: 1, timeOfDay: 0.35, buildings: [], tiles: [], npcs: [] },
+      data: { version: 1, gridSize, timeOfDay: 0.35, buildings: [], tiles: [], npcs: [] },
     };
     tx.objectStore(STORE).put(record);
     tx.oncomplete = () => { db.close(); resolve({ id, name, createdAt: now, updatedAt: now }); };
