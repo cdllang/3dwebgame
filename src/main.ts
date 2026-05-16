@@ -1251,6 +1251,7 @@ window.addEventListener('keydown', (e) => {
 function buildSaveData(): SaveData {
   return {
     version: 1,
+    gridSize: GRID,
     timeOfDay,
     buildings: placedBuildings.map(b => ({
       defId: b.def.id,
