@@ -1299,6 +1299,9 @@ function saveWorld(): Promise<void> {
 }
 
 function restoreWorld(data: SaveData) {
+  // Restore grid size before loading tiles
+  setGridSize(data.gridSize ?? 12);
+  rebuildGroundTiles();
   if (data.timeOfDay !== undefined) timeOfDay = data.timeOfDay;
   // Restore ground tiles
   if (data.tiles) {
